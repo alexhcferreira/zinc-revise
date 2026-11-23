@@ -41,8 +41,8 @@ TecConcursos ──► cola questão (texto ou print) ──► cartão de confi
 
 ## Documentação
 
-- [Regras de negócio](docs/REGRAS_DE_NEGOCIO.md): o que o app faz e como decide cada coisa
-- [Arquitetura e infraestrutura](docs/ARQUITETURA.md): stack, hospedagem, integração com o Claude, modelo de dados e custos
+- [Regras de negócio](REGRAS_DE_NEGOCIO.md): o que o app faz e como decide cada coisa
+- [Arquitetura e infraestrutura](ARQUITETURA.md): stack, hospedagem, integração com o Claude, modelo de dados e custos
 
 ## Status
 

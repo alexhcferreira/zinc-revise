@@ -13,6 +13,7 @@
 | **Banco do tópico** | Conjunto de questões (reais e geradas) disponíveis para sorteio naquele tópico |
 | **Biblioteca de leis** | Seção do app onde o usuário envia os PDFs oficiais das leis do edital |
 | **Texto-base** | Trecho da biblioteca de leis correspondente ao tópico (os dispositivos que ele cobre) |
+| **Material de apoio** | PDF opcional de teoria, ligado a um tópico de matéria que não é lei seca (ex.: Crase) |
 | **Etapa** | Posição do tópico na escada de intervalos de revisão |
 | **Sessão diária** | Bateria única de questões com todos os tópicos vencidos no dia |
 
@@ -64,6 +65,13 @@ Antes de salvar, o app mostra um cartão com o que foi extraído: enunciado, alt
 - O Claude **não busca leis por fora**. A única exceção é quando ele achar necessário, por exemplo quando o dispositivo não está em nenhum PDF enviado. Nesse caso o app avisa que o texto veio de fonte externa e sugere enviar o PDF.
 - Sem texto-base, o tópico mostra o aviso "sem texto-base, conferir dispositivos".
 - Enviar uma versão nova do PDF de uma lei substitui a anterior. Os tópicos ligados a ela passam a usar o texto novo.
+
+### 2.6 Matérias sem lei seca
+- Língua Portuguesa, Matemática, Informática, Raciocínio Lógico e outras matérias que não são lei seca não têm texto-base.
+- Nelas o tópico é um **assunto** (ex.: *Crase*, *Regra de três*), e não um dispositivo.
+- A geração usa as **questões reais** do tópico e o conhecimento do Claude.
+- O usuário pode anexar ao tópico um **material de apoio** opcional (PDF de teoria). Quando houver, a geração e a conferência de gabarito se ancoram nele.
+- O aviso "sem texto-base" **não aparece** nessas matérias.
 
 ---
 
@@ -150,10 +158,10 @@ Ao final de cada revisão, o desempenho do tópico **naquela sessão**, desconsi
 |---|---|
 | **≥ 80%** | Avança uma etapa. Na manutenção, continua em manutenção |
 | **50% a 79%** | Repete a etapa atual (mesmo intervalo) |
-| **< 50%** | Volta para a etapa 1 (revisão em 1 dia) |
+| **< 50%** | Volta para a etapa 0 (revisão em 1 dia) |
 
 ### 4.5 Novo erro no Tec num tópico já existente
-Se o usuário enviar uma nova questão real **errada** num tópico que já existe, o tópico volta para a **etapa 1** e a questão entra no banco com prioridade. Uma questão real **certa** ou **não respondida** não altera a etapa.
+Se o usuário enviar uma nova questão real **errada** num tópico que já existe, o tópico volta para a **etapa 0** (revisão em 1 dia) e a questão entra no banco com prioridade. Uma questão real **certa** ou **não respondida** não altera a etapa.
 
 ### 4.6 Atrasos
 - Dias sem estudar não geram penalidade automática. Os tópicos vencidos se acumulam e entram na próxima sessão.
@@ -175,6 +183,7 @@ Se o usuário enviar uma nova questão real **errada** num tópico que já exist
 4. **Repetir questões é normal.** Não há limite de quantas vezes uma questão pode voltar ao longo do tempo. A janela do item 3 só evita repetição muito próxima.
 5. Nunca repete a mesma questão dentro da mesma sessão.
 6. Questões invalidadas nunca entram.
+7. **Tópico vencido sem banco:** se o usuário ainda não apertou "Gerar questões", as questões reais já enviadas do tópico entram na sessão mesmo assim. Se o tópico não tiver nenhuma questão, ele fica fora da sessão com o aviso "gere questões para este tópico" e continua vencido.
 
 ### 5.3 Experiência de resposta (estilo Tec)
 - Uma questão por vez: o usuário marca a alternativa e confirma.
@@ -190,6 +199,7 @@ Se o usuário enviar uma nova questão real **errada** num tópico que já exist
 ### 5.5 Continuidade entre dispositivos
 - O estado da sessão fica no servidor. A sessão pode ser **pausada no serviço e retomada em casa**, ou o contrário.
 - Uma sessão iniciada e não terminada continua aberta até ser concluída.
+- A sessão aberta **mantém a composição do dia em que começou**. Tópicos que vencem nos dias seguintes não entram nela: ficam para a **próxima sessão**, que só pode começar depois que a atual for concluída.
 
 ---
 

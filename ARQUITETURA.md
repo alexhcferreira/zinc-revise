@@ -45,14 +45,14 @@ Por que porta separada em vez de mais um caminho no mesmo domínio:
 
 | Camada | Escolha | Motivo |
 |---|---|---|
-| Backend | Python 3.12+ com FastAPI | Simples de manter rodando no Windows; bom suporte ao SDK da Anthropic |
+| Backend | Python 3.13 com FastAPI | Simples de manter rodando no Windows; bom suporte ao SDK da Anthropic |
 | Banco | SQLite (arquivo local) | Um usuário só, zero administração, backup = copiar um arquivo |
 | Front | HTML + JS (SPA leve), servido pelo próprio backend | Sem build complexo; funciona em qualquer navegador |
 | Jobs | Fila simples em tabela SQLite + worker em thread | Execução em segundo plano do "Gerar questões" |
 | PDFs | `pdfplumber` / `pypdf` para extrair texto + parser de dispositivos | Biblioteca de leis (seção 4.4) |
 | IA | `claude` CLI (assinatura) ou `anthropic` SDK (API) | Ver seção 4 |
 
-Alternativa considerada: Node.js. Ainda não confirmado se o PC tem Python ou Node instalado.
+Decidido: Python + FastAPI. O PC de casa tem Python 3.13.7. Node.js foi considerado e descartado.
 
 ## 4. Camada de IA
 
@@ -115,11 +115,13 @@ dispositivo    (id, lei_id, referencia, nivel[artigo|paragrafo|inciso|alinea],
 topico         (id, materia_id, nome, etapa, proxima_revisao,
                 ultima_revisao, ultima_geracao, criado_em)
 topico_dispositivo (topico_id, dispositivo_id)
+material_apoio (id, topico_id, nome, pdf_path, texto, enviado_em)  -- matérias sem lei seca
 questao        (id, topico_id, origem[real|gerada], enunciado,
                 alternativas_json, gabarito,
                 gabarito_origem[print|claude_provisorio|claude_conferido|usuario],
                 justificativa, dispositivo_ref,
-                no_banco[0|1],              -- real só entra após "Gerar questões"
+                no_banco[0|1],              -- real entra no banco após "Gerar questões",
+                                            -- mas já pode ser sorteada antes (regras 5.2, item 7)
                 status[ativa|invalidada], motivo_invalidacao,
                 -- só reais:
                 marcada_no_tec, resultado_no_tec[acertou|errou|nao_respondeu],
@@ -196,6 +198,6 @@ Referências:
 - [x] PC sempre ligado
 - [x] Tailscale instalado em casa e no serviço
 - [x] Claude Code instalado
-- [ ] `claude --version` funcionando num **terminal novo**, e `claude` logado na assinatura (rodar `claude` uma vez e fazer login no navegador)
-- [ ] Python 3.12+ (ou Node, se essa for a escolha)
+- [ ] `claude` logado na assinatura (rodar `claude` uma vez e fazer login no navegador). O executável está em `%USERPROFILE%\.local\bin\claude.exe` (versão 2.1.331). Usar esse caminho completo em `CLAUDE_BIN`
+- [x] Python 3.13.7
 - [ ] Liberar a porta 8443 no `tailscale serve`, só na tailnet
