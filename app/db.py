@@ -204,6 +204,8 @@ def tx():
 
 MIGRACOES = {
     "topico": {"assunto": "TEXT NOT NULL DEFAULT ''"},
+    "materia": {"tema": "TEXT NOT NULL DEFAULT ''"},
+    "sessao": {"teste": "INTEGER NOT NULL DEFAULT 0"},
     "questao": {"assunto": "TEXT NOT NULL DEFAULT ''", "tec_codigo": "TEXT NOT NULL DEFAULT ''",
                 "tec_prova": "TEXT NOT NULL DEFAULT ''"},
 }

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from datetime import timedelta
 from pathlib import Path
@@ -17,23 +18,49 @@ def srs_cfg() -> dict:
     )}
 
 
+def migrar_assuntos() -> None:
+    """Uma vez só: o tópico de revisão passa a ser o Assunto do Tec, e cada matéria ganha um Tema."""
+    if config.get("migr_assunto_v1"):
+        return
+    with db.tx() as conn:
+        for m in db.rows("SELECT id, nome FROM materia WHERE tema = ''"):
+            conn.execute("UPDATE materia SET tema = ? WHERE id = ?", (tema_padrao(m["nome"]), m["id"]))
+        for t in db.rows("SELECT id, materia_id, nome, assunto FROM topico WHERE assunto != '' AND nome != assunto"):
+            alvo = db.row("SELECT id FROM topico WHERE materia_id = ? AND lower(nome) = lower(?) AND id != ?",
+                          (t["materia_id"], t["assunto"], t["id"]))
+            if alvo:
+                for tabela in ("questao", "sessao_item", "revisao", "material_apoio"):
+                    conn.execute(f"UPDATE {tabela} SET topico_id = ? WHERE topico_id = ?", (alvo["id"], t["id"]))
+                conn.execute("DELETE FROM topico WHERE id = ?", (t["id"],))
+            else:
+                conn.execute("UPDATE topico SET nome = assunto WHERE id = ?", (t["id"],))
+    config.set("migr_assunto_v1", True)
+
+
 def contexto_leitura() -> dict:
     return {
         "materias": [m["nome"] for m in db.rows("SELECT nome FROM materia ORDER BY nome")],
-        "topicos": [f"{t['materia']} › {t['assunto'] or '—'} › {t['nome']}" for t in db.rows(
-            "SELECT m.nome AS materia, t.assunto, t.nome FROM topico t JOIN materia m ON m.id = t.materia_id "
-            "ORDER BY m.nome, t.assunto, t.nome")],
+        "topicos": [f"{t['tema'] or '—'} › {t['materia']} › {t['nome']}" for t in db.rows(
+            "SELECT m.tema, m.nome AS materia, t.nome FROM topico t JOIN materia m ON m.id = t.materia_id "
+            "ORDER BY m.tema, m.nome, t.nome")],
         "leis": [f"{l['sigla']} – {l['nome']}" for l in db.rows("SELECT sigla, nome FROM lei ORDER BY sigla")],
     }
 
 
-def obter_ou_criar_materia(nome: str, lei_seca: bool) -> int:
+def tema_padrao(materia: str) -> str:
+    return re.sub(r"\s*\(.*\)\s*$", "", materia).strip()
+
+
+def obter_ou_criar_materia(nome: str, lei_seca: bool, tema: str = "") -> int:
     nome = nome.strip() or "Sem matéria"
-    m = db.row("SELECT id FROM materia WHERE lower(nome) = lower(?)", (nome,))
+    tema = tema.strip() or tema_padrao(nome)
+    m = db.row("SELECT id, tema FROM materia WHERE lower(nome) = lower(?)", (nome,))
     if m:
+        if not m["tema"]:
+            db.get_conn().execute("UPDATE materia SET tema = ? WHERE id = ?", (tema, m["id"]))
         return m["id"]
     return db.get_conn().execute(
-        "INSERT INTO materia(nome, lei_seca) VALUES(?, ?)", (nome, int(lei_seca))
+        "INSERT INTO materia(nome, lei_seca, tema) VALUES(?, ?, ?)", (nome, int(lei_seca), tema)
     ).lastrowid
 
 
@@ -84,9 +111,9 @@ def salvar_real(d: dict) -> dict:
                 raise ValueError("Tópico não encontrado.")
             topico_id, novo = t["id"], False
         else:
-            materia_id = obter_ou_criar_materia(d.get("materia", ""), bool(d.get("lei_seca", True)))
-            topico_id, novo = obter_ou_criar_topico(materia_id, d.get("topico", ""), d.get("dispositivo_ref", ""),
-                                                    d.get("assunto", ""))
+            materia_id = obter_ou_criar_materia(d.get("materia", ""), bool(d.get("lei_seca", True)), d.get("tema", ""))
+            assunto = (d.get("assunto") or d.get("topico") or "").strip()
+            topico_id, novo = obter_ou_criar_topico(materia_id, assunto, d.get("dispositivo_ref", ""), assunto)
 
         imagem_path = ""
         up = d.get("upload_id")

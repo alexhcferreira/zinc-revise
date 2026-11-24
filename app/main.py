@@ -24,6 +24,7 @@ MAX_UPLOAD = 40 * 1024 * 1024
 async def lifespan(app: FastAPI):
     db.init_db()
     auth.garantir_senha()
+    questoes.migrar_assuntos()
     jobs.iniciar_worker()
     yield
     jobs.parar_worker()
@@ -118,7 +119,8 @@ async def trocar_senha(request: Request):
 
 @app.get("/api/painel")
 def painel():
-    vencidos = sessao.topicos_vencidos()
+    teste = sessao.modo_teste()
+    vencidos = sessao.topicos_com_questoes() if teste else sessao.topicos_vencidos()
     sem_questoes, com_questoes = [], []
     for t in vencidos:
         n = db.row("SELECT COUNT(*) AS n FROM questao WHERE topico_id = ? AND status = 'ativa'", (t["id"],))["n"]
@@ -134,9 +136,11 @@ def painel():
         tot = db.row("SELECT COUNT(*) AS n, SUM(resposta IS NOT NULL OR invalidada = 1) AS r FROM sessao_item "
                      "WHERE sessao_id = ?", (aberta["id"],))
         progresso = {"total": tot["n"], "respondidas": tot["r"] or 0, "data": aberta["data"]}
-    limite = int(config.get("limite_diario") or 0)
+    limite = 0 if teste else int(config.get("limite_diario") or 0)
     return {
         "hoje": db.hoje().isoformat(),
+        "modo_teste": teste,
+        "modelos": config.get("modelos"),
         "vencidos": com_questoes,
         "vencidos_na_sessao": len(com_questoes[:limite]) if limite else len(com_questoes),
         "sem_questoes": sem_questoes,
@@ -234,7 +238,7 @@ async def explicar(qid: int, request: Request):
         return {"texto": q["explicacao_detalhada"]}
     pub = questoes.questao_publica(q)
     t = db.row("SELECT * FROM topico WHERE id = ?", (q["topico_id"],))
-    pub["texto_base"] = leis.texto_base(t) if t else ""
+    pub["texto_base"] = leis.texto_base_ref(q["dispositivo_ref"]) or (leis.texto_base_topico(t["id"]) if t else "")
     import anyio
 
     texto = await anyio.to_thread.run_sync(
@@ -276,18 +280,18 @@ async def editar_materia(mid: int, request: Request):
 def topicos():
     ts = db.rows(
         """SELECT t.id, t.nome, t.assunto, t.dispositivo_ref, t.etapa, t.proxima_revisao, t.ultima_revisao, t.ultima_geracao,
-                  t.lei_id, t.dispositivo_chave, m.id AS materia_id, m.nome AS materia, m.lei_seca,
+                  t.lei_id, t.dispositivo_chave, m.id AS materia_id, m.nome AS materia, m.tema, m.lei_seca,
                   (SELECT COUNT(*) FROM material_apoio a WHERE a.topico_id = t.id) AS materiais
-           FROM topico t JOIN materia m ON m.id = t.materia_id ORDER BY m.nome, t.assunto, t.nome""")
+           FROM topico t JOIN materia m ON m.id = t.materia_id ORDER BY m.tema, m.nome, t.nome""")
     for t in ts:
         t.update(questoes.situacao_banco(t["id"]))
-        t["sem_texto_base"] = bool(t["lei_seca"]) and not leis.texto_base(t)
+        t["sem_texto_base"] = bool(t["lei_seca"]) and not leis.texto_base_topico(t["id"])
     return {"topicos": ts, "max_etapa": len(config.get("intervalos"))}
 
 
 @app.get("/api/topicos/{tid}")
 def topico(tid: int):
-    t = db.row("""SELECT t.*, m.nome AS materia, m.lei_seca FROM topico t JOIN materia m ON m.id = t.materia_id
+    t = db.row("""SELECT t.*, m.nome AS materia, m.tema, m.lei_seca FROM topico t JOIN materia m ON m.id = t.materia_id
                   WHERE t.id = ?""", (tid,))
     if not t:
         raise HTTPException(404)
@@ -297,7 +301,7 @@ def topico(tid: int):
         "topico": t,
         "lei": lei,
         "banco": questoes.situacao_banco(tid),
-        "texto_base": leis.texto_base(t),
+        "texto_base": leis.texto_base_topico(tid),
         "materiais": db.rows("SELECT id, nome, enviado_em, length(texto) AS tamanho FROM material_apoio "
                              "WHERE topico_id = ? ORDER BY id DESC", (tid,)),
         "questoes": [questoes.questao_publica(q) for q in qs],
@@ -318,8 +322,11 @@ async def editar_topico(tid: int, request: Request):
         conn.execute("UPDATE topico SET dispositivo_ref = ? WHERE id = ?", (str(body["dispositivo_ref"]).strip(), tid))
         leis.ligar_topico(tid)
     if "materia" in body and str(body["materia"]).strip():
-        mid = questoes.obter_ou_criar_materia(str(body["materia"]), True)
+        mid = questoes.obter_ou_criar_materia(str(body["materia"]), True, str(body.get("tema", "")))
         conn.execute("UPDATE topico SET materia_id = ? WHERE id = ?", (mid, tid))
+    if "tema" in body and str(body["tema"]).strip():
+        conn.execute("UPDATE materia SET tema = ? WHERE id = (SELECT materia_id FROM topico WHERE id = ?)",
+                     (str(body["tema"]).strip(), tid))
     return {"ok": True}
 
 
@@ -365,7 +372,11 @@ def apagar_material(mid: int):
 @app.post("/api/gerar")
 async def gerar(request: Request):
     body = _json_body(await request.body())
-    criados = jobs.enfileirar_geracao(body.get("topico_id"), modo=body.get("modo") or None)
+    try:
+        quantidade = int(body.get("quantidade") or 0) or None
+    except (TypeError, ValueError):
+        raise ValueError("Quantidade inválida.")
+    criados = jobs.enfileirar_geracao(body.get("topico_id"), modo=body.get("modo") or None, quantidade=quantidade)
     return {"jobs": criados}
 
 
@@ -500,7 +511,7 @@ def ver_config():
 
 EDITAVEIS = {"modo_ia", "claude_bin", "modelos", "intervalos", "intervalo_manutencao", "limiar_avancar",
              "limiar_repetir", "questoes_primeira", "questoes_demais", "proporcao_reais", "minimo_geradas",
-             "limiar_banco_baixo", "limite_diario", "estilo_banca"}
+             "limiar_banco_baixo", "limite_diario", "estilo_banca", "modo_teste_sessao"}
 
 
 @app.put("/api/config")
@@ -516,6 +527,8 @@ async def salvar_config(request: Request):
                 if not isinstance(v, list) or not v or not all(isinstance(x, int) and x > 0 for x in v):
                     raise ValueError("Intervalos devem ser números inteiros positivos.")
             config.set(k, v)
+            if k == "modo_teste_sessao" and not v:
+                sessao.descartar_sessoes_teste()
     return config.todas_publicas()
 
 

@@ -38,7 +38,8 @@ def _respostas(inicio: str, fim: str, fonte: str, origem: str, materias: list[in
                 JOIN questao q ON q.id = si.questao_id
                 JOIN topico t ON t.id = si.topico_id
                 JOIN materia m ON m.id = t.materia_id
-                WHERE si.resposta IS NOT NULL AND si.invalidada = 0 AND q.status = 'ativa'
+                JOIN sessao s ON s.id = si.sessao_id
+                WHERE si.resposta IS NOT NULL AND si.invalidada = 0 AND q.status = 'ativa' AND s.teste = 0
                   AND substr(si.respondida_em, 1, 10) BETWEEN ? AND ?{filtro_mat}{filtro_origem}""",
             (inicio, fim, *params_mat, *params_origem),
         )

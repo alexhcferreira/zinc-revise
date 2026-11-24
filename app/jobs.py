@@ -32,7 +32,8 @@ def topicos_com_novas() -> list[int]:
         "SELECT DISTINCT topico_id FROM questao WHERE origem = 'real' AND no_banco = 0 AND status = 'ativa'")]
 
 
-def enfileirar_geracao(topico_id: int | None = None, modo: str | None = None) -> list[int]:
+def enfileirar_geracao(topico_id: int | None = None, modo: str | None = None,
+                       quantidade: int | None = None) -> list[int]:
     alvos = [topico_id] if topico_id else topicos_com_novas()
     criados = []
     with db.tx() as conn:
@@ -42,6 +43,8 @@ def enfileirar_geracao(topico_id: int | None = None, modo: str | None = None) ->
             if ja:
                 continue
             payload = {"modo": modo} if modo else {}
+            if quantidade:
+                payload["quantidade"] = max(1, min(int(quantidade), 50))
             criados.append(conn.execute(
                 "INSERT INTO job(tipo, topico_id, payload_json, criado_em, atualizado_em) VALUES('gerar_banco', ?, ?, ?, ?)",
                 (tid, json.dumps(payload), db.agora(), db.agora()),
@@ -71,7 +74,7 @@ def listar(ativos: bool = False) -> list[dict]:
 # Contexto e aplicação do resultado
 # ---------------------------------------------------------------------------
 
-def montar_contexto(topico_id: int) -> dict:
+def montar_contexto(topico_id: int, quantidade: int | None = None) -> dict:
     t = db.row(
         """SELECT t.*, m.nome AS materia, m.lei_seca FROM topico t JOIN materia m ON m.id = t.materia_id
            WHERE t.id = ?""", (topico_id,))
@@ -88,6 +91,11 @@ def montar_contexto(topico_id: int) -> dict:
     if n_gerar == 0 and banco["banco_baixo"]:
         n_gerar = minimo
     n_gerar = min(n_gerar, 15)
+    if quantidade:
+        # quantidade escolhida no botão = total de questões que entram no banco nesta geração,
+        # contando as reais novas (copiadas). Só a diferença é gerada pelo Claude.
+        # Ex.: 5 reais novas e quantidade 15 -> copia as 5 e gera 10.
+        n_gerar = max(0, min(int(quantidade), 50) - banco["novas"])
     conferir = [q["id"] for q in reais if q["gabarito_origem"] == "claude_provisorio"]
     material = db.row("SELECT texto FROM material_apoio WHERE topico_id = ? ORDER BY id DESC LIMIT 1", (topico_id,))
     return {
@@ -96,7 +104,7 @@ def montar_contexto(topico_id: int) -> dict:
         "topico": t["nome"],
         "lei_seca": bool(t["lei_seca"]),
         "dispositivo_ref": t["dispositivo_ref"],
-        "texto_base": leis.texto_base(t),
+        "texto_base": leis.texto_base_topico(topico_id),
         "material_apoio": (material["texto"][:30000] if material else ""),
         "estilo": config.get("estilo_banca"),
         "reais": [{"id": q["id"], "enunciado": q["enunciado"], "alternativas": json.loads(q["alternativas_json"]),
@@ -167,7 +175,7 @@ def processar_um(job: dict) -> None:
     payload = json.loads(job["payload_json"] or "{}")
     _marcar(job["id"], "rodando")
     try:
-        ctx = montar_contexto(job["topico_id"])
+        ctx = montar_contexto(job["topico_id"], payload.get("quantidade"))
         res = ia.gerar_banco(ctx, modo=payload.get("modo")) if _precisa_ia(ctx) else None
         n = aplicar_resultado(ctx, res)
         _marcar(job["id"], "ok", extra={"geradas": n})
@@ -188,7 +196,7 @@ def processar_lote_api(jobs: list[dict]) -> None:
     for j in jobs:
         _marcar(j["id"], "rodando")
         try:
-            ctx = montar_contexto(j["topico_id"])
+            ctx = montar_contexto(j["topico_id"], json.loads(j["payload_json"] or "{}").get("quantidade"))
         except Exception as e:  # noqa: BLE001
             _marcar(j["id"], "erro", str(e))
             continue

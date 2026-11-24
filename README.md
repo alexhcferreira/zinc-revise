@@ -83,7 +83,9 @@ Visual de plataforma de questões: limpo, claro e organizado, com a tela de ques
 - Fonte Source Sans 3 em todo o app.
 - Azul como cor principal; verde e vermelho só para acerto e erro (cores dos gráficos validadas para daltonismo).
 - Menu lateral com ícones, cartões brancos com borda suave.
-- Cadastro: print em cima, questão recriada embaixo. Matéria e assunto são copiados exatamente como aparecem no print do Tec.
+- Cadastro: print em cima, questão recriada embaixo.
+- Organização em **Tema › Matéria › Assunto** (ex.: Direito Administrativo › Direito Administrativo (Doutrina e Leis Federais) › Dos Atos de Improbidade (arts. 9º a 11 da Lei nº 8.429/1992)). Matéria e assunto são copiados exatamente do print do Tec, e o Assunto é a unidade da revisão espaçada.
+- **Modo de teste da sessão** (Configurações › Sessão diária): a sessão traz todas as questões sem mexer em etapas, datas ou estatísticas. Voltar para o normal descarta as sessões de teste.
 - Três temas, escolhidos em Configurações: **Claro**, **Claro suave** e **Escuro**.
 
 ## Status

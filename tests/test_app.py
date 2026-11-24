@@ -21,9 +21,10 @@ def app_env(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DATA_DIR", tmp_path)
     db.reset_thread_conn()
     db.init_db()
-    from app import auth
+    from app import auth, jobs
 
     auth.garantir_senha()
+    jobs._parar.clear()  # outro teste pode ter encerrado o worker
     yield tmp_path
     db.reset_thread_conn()
 
@@ -278,3 +279,76 @@ def test_estatisticas_por_materia(app_env):
     assert r["geral"]["resolvidas"] == 2 and r["geral"]["acertos"] == 1
     assert r["materias"][0]["sigla"] == "DP" and len(r["materias"][0]["topicos"]) == 2
     assert stats.sigla_materia("Direito Processual Civil") == "DPC"
+
+
+def test_modo_teste_nao_mexe_na_revisao(app_env):
+    from app import config, db, questoes, sessao, stats
+
+    base = {"materia": "Direito Penal (Parte Geral)", "lei_seca": True, "assunto": "Do Crime (arts. 13 a 25)",
+            "alternativas": [{"letra": l, "texto": l} for l in "ABCDE"]}
+    for i in range(3):
+        questoes.salvar_real({**base, "enunciado": f"Q{i}", "situacao": "acertou", "marcada": "A", "gabarito": "A"})
+    t = db.row("SELECT * FROM topico")
+    assert t["nome"] == "Do Crime (arts. 13 a 25)"
+    assert db.row("SELECT tema FROM materia")["tema"] == "Direito Penal"
+    antes = (t["etapa"], t["proxima_revisao"])
+
+    # hoje nada vence (primeira revisão é amanhã), mas o modo de teste traz todas as questões
+    assert sessao.montar_sessao()["sessao"] is None
+    config.set("modo_teste_sessao", True)
+    st = sessao.montar_sessao(random.Random(1))
+    assert st["sessao"]["teste"] == 1 and len(st["itens"]) == 3
+    for it in st["itens"]:
+        sessao.responder(it["item_id"], "B")
+    fim = sessao.concluir(st["sessao"]["id"])
+    assert fim["resumo"]["teste"] and fim["resumo"]["total"] == 3
+    t = db.row("SELECT * FROM topico")
+    assert (t["etapa"], t["proxima_revisao"]) == antes
+    assert db.row("SELECT SUM(vezes_vista) AS n FROM questao")["n"] == 0
+    assert stats.estatisticas("2026-11-01", "2026-11-30", fonte="app")["geral"]["resolvidas"] == 0
+
+    # desligar volta ao normal e descarta as sessões de teste
+    config.set("modo_teste_sessao", False)
+    sessao.descartar_sessoes_teste()
+    assert db.row("SELECT COUNT(*) AS n FROM sessao")["n"] == 0
+
+
+def test_migracao_topico_vira_assunto(app_env):
+    from app import config, db, questoes
+
+    mid = questoes.obter_ou_criar_materia("Direito Administrativo (Doutrina e Leis Federais)", True)
+    db.get_conn().execute("UPDATE materia SET tema = '' WHERE id = ?", (mid,))
+    a, _ = questoes.obter_ou_criar_topico(mid, "Art. 1º – dolo", "", "Dos Atos de Improbidade")
+    b, _ = questoes.obter_ou_criar_topico(mid, "Art. 9º – enriquecimento", "", "Dos Atos de Improbidade")
+    for tid in (a, b):
+        db.get_conn().execute(
+            "INSERT INTO questao(topico_id, origem, enunciado, alternativas_json, criado_em) VALUES(?, 'real', 'x', '[]', 'x')",
+            (tid,))
+    config.set("migr_assunto_v1", False)
+    questoes.migrar_assuntos()
+    ts = db.rows("SELECT * FROM topico")
+    assert len(ts) == 1 and ts[0]["nome"] == "Dos Atos de Improbidade"
+    assert db.row("SELECT COUNT(*) AS n FROM questao WHERE topico_id = ?", (ts[0]["id"],))["n"] == 2
+    assert db.row("SELECT tema FROM materia")["tema"] == "Direito Administrativo"
+
+
+def test_quantidade_conta_reais_novas(app_env, monkeypatch):
+    from app import ia, jobs, questoes
+
+    chamadas = []
+    monkeypatch.setattr(ia, "gerar_banco", lambda ctx, modo=None: chamadas.append(ctx) or
+                        {"gabaritos": [], "questoes": [_q(i) for i in range(ctx["n_gerar"])], "fonte_externa": False, "fontes": ""})
+    base = {"materia": "Direito Penal (Parte Geral)", "lei_seca": True, "assunto": "Do Crime",
+            "alternativas": [{"letra": l, "texto": l} for l in "ABCDE"]}
+    for i in range(5):
+        r = questoes.salvar_real({**base, "enunciado": f"Q{i}", "situacao": "errou", "marcada": "A", "gabarito": "B"})
+    jobs.enfileirar_geracao(r["topico_id"], quantidade=15)
+    jobs.ciclo()
+    assert chamadas[0]["n_gerar"] == 10          # 15 no total: 5 reais copiadas + 10 geradas
+    assert questoes.situacao_banco(r["topico_id"])["novas"] == 0
+
+    chamadas.clear()
+    questoes.salvar_real({**base, "enunciado": "Q9", "situacao": "errou", "marcada": "A", "gabarito": "B"})
+    jobs.enfileirar_geracao(r["topico_id"], quantidade=1)
+    jobs.ciclo()
+    assert not chamadas                           # 1 real nova já completa a quantidade: só copia

@@ -54,6 +54,7 @@
     mais: ["M12 5v14", "M5 12h14"],
     menos: ["M5 12h14"],
     voltar: ["M15 18l-6-6 6-6"],
+    avancar: ["M9 18l6-6-6-6"],
     alerta: ["M12 9v4", "M12 17h.01", "M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"],
     info: ["M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 16v-4", "M12 8h.01"],
     gerar: ["M21 12a9 9 0 1 1-3-6.7L21 8", "M21 3v5h-5"],
@@ -220,7 +221,7 @@
   let pollTimer = null;
 
   const ROTAS = [
-    ["hoje", "Hoje"], ["cadastrar", "Cadastrar questão"], ["sessao", "Sessão diária"], ["topicos", "Tópicos"],
+    ["hoje", "Hoje"], ["cadastrar", "Cadastrar questão"], ["sessao", "Sessão diária"], ["topicos", "Assuntos"],
     ["estatisticas", "Estatísticas"], ["leis", "Biblioteca de leis"], ["config", "Configurações"],
   ];
 
@@ -275,7 +276,7 @@
     limpar(jobsInd);
     if (!ativos.length) { jobsInd.classList.add("oculto"); pararPolling(); return; }
     jobsInd.classList.remove("oculto");
-    adicionar(jobsInd, ["Gerando questões · " + plural(ativos.length, "tópico"), h("div", { class: "barra" }, h("i"))]);
+    adicionar(jobsInd, ["Gerando questões · " + plural(ativos.length, "assunto"), h("div", { class: "mudo", style: { fontWeight: 500, marginTop: "2px" } }, rotuloModelo("gerar")), h("div", { class: "barra" }, h("i"))]);
     agendarPolling();
   }
 
@@ -340,6 +341,13 @@
     limpeza.push(() => document.removeEventListener("keydown", handler));
   }
 
+  function bannerTeste() {
+    if (!painelCache || !painelCache.modo_teste) return null;
+    return h("div", { class: "banner-teste" }, icone("alerta"),
+      h("span", null, "Modo de teste da sessão ligado: a sessão traz todas as questões e não altera a revisão espaçada. ",
+        h("a", { href: "#/config" }, "Desligar em Configurações")));
+  }
+
   function cabecalho(titulo, sub, ...acoes) {
     return h("div", { class: "pag-cab" },
       h("div", null, h("h1", null, titulo), sub ? h("div", { class: "sub" }, sub) : null),
@@ -353,8 +361,25 @@
         e.dados && e.dados.pode_tentar_api ? h("button", { class: "btn sm", onclick: () => tentar("api") }, "Tentar com API key") : null));
   }
 
-  async function gerar(topicoId, modo) {
-    const r = await api("/api/gerar", { method: "POST", body: { topico_id: topicoId || null, modo: modo || null } });
+  const NOME_MODELO = { "claude-haiku-5-5": "Haiku", "claude-sonnet-5-5": "Sonnet", "claude-opus-5-5": "Opus", "claude-fable-5-2": "Fable" };
+  const NOME_ESFORCO = { low: "baixo", medium: "médio", high: "alto", xhigh: "muito alto", max: "máximo" };
+  /* "Haiku – baixo": modelo e esforço configurados para a tarefa */
+  function rotuloModelo(tarefa) {
+    const m = painelCache && painelCache.modelos && painelCache.modelos[tarefa];
+    if (!m) return "";
+    return (NOME_MODELO[m.modelo] || m.modelo) + " – " + (NOME_ESFORCO[m.esforco] || m.esforco);
+  }
+
+  /* campo de quantidade + botão "Gerar questões" */
+  function botaoGerar(topicoId, opc = {}) {
+    const qtd = h("input", { class: "inp qtd", type: "number", min: "1", max: "50", value: "5", "aria-label": "Quantidade de questões (reais novas + geradas)", title: "Quantas questões entram no banco: as reais novas são copiadas e o resto é gerado" });
+    const btn = h("button", { class: "btn " + (opc.classe || "prim"), disabled: !!opc.desabilitado, title: opc.titulo || null,
+      onclick: () => gerar(topicoId, null, parseInt(qtd.value, 10) || 5) }, icone("gerar"), opc.rotulo || "Gerar questões");
+    return h("span", { class: "gerar-grupo" + (opc.pequeno ? " sm" : "") }, qtd, btn);
+  }
+
+  async function gerar(topicoId, modo, quantidade) {
+    const r = await api("/api/gerar", { method: "POST", body: { topico_id: topicoId || null, modo: modo || null, quantidade: quantidade || null } });
     if (!r.jobs.length) toast(topicoId ? "Esse tópico já está na fila." : "Nenhum tópico com questões novas.");
     else toast("Geração iniciada para " + plural(r.jobs.length, "tópico") + ". Pode continuar usando o app.");
     await atualizarPainel();
@@ -367,6 +392,7 @@
     const p = painelCache || (await atualizarPainel());
     limpar(main);
     main.appendChild(cabecalho("Hoje", fmtLonga(p.hoje)));
+    const bt = bannerTeste(); if (bt) main.appendChild(bt);
 
     const aberta = p.sessao_aberta;
     const nSessao = p.vencidos_na_sessao;
@@ -409,7 +435,7 @@
     if (p.topicos_com_novas) {
       main.appendChild(alerta("info", h("div", { class: "linha" },
         h("span", { class: "espaco" }, plural(p.topicos_com_novas, "tópico") + " com questões novas desde a última geração."),
-        h("button", { class: "btn prim sm", onclick: () => gerar(null) }, icone("gerar"), "Gerar questões"))));
+        botaoGerar(null, { pequeno: true }))));
     }
 
     let jobsRecentes = [];
@@ -429,14 +455,14 @@
       main.appendChild(h("h2", { class: "secao-tit" }, "Vencidos sem questões", h("span", { class: "sub" }, "ficam fora da sessão até terem questões")));
       main.appendChild(h("section", { class: "card" }, h("ul", { class: "lista" }, p.sem_questoes.map((t) => h("li", null,
         h("div", { class: "princ" }, h("a", { class: "t", href: "#/topico/" + t.id }, t.nome), h("div", { class: "s" }, t.materia)),
-        h("button", { class: "btn sm", onclick: () => gerar(t.id) }, icone("gerar"), "Gerar questões"))))));
+        botaoGerar(t.id, { pequeno: true, classe: "" }))))));
     }
 
     if (p.banco_baixo.length) {
       main.appendChild(h("h2", { class: "secao-tit" }, "Banco baixo", h("span", { class: "sub" }, "menos de 6 questões não vistas recentemente")));
       main.appendChild(h("section", { class: "card" }, h("ul", { class: "lista" }, p.banco_baixo.slice(0, 30).map((t) => h("li", null,
         h("div", { class: "princ" }, h("a", { class: "t", href: "#/topico/" + t.id }, t.nome), h("div", { class: "s" }, t.materia + " · " + plural(t.frescas, "questão fresca", "questões frescas"))),
-        h("button", { class: "btn sm", onclick: () => gerar(t.id) }, icone("gerar"), "Gerar questões"))))));
+        botaoGerar(t.id, { pequeno: true, classe: "" }))))));
     }
   }
 
@@ -447,7 +473,7 @@
     const [materias, topicosResp] = await Promise.all([api("/api/materias"), api("/api/topicos")]);
     const topicos = topicosResp.topicos;
     limpar(main);
-    main.appendChild(cabecalho("Cadastrar questão", "Cole o print ou o texto de uma questão do Tec: certa, errada ou não respondida."));
+    main.appendChild(cabecalho("Cadastrar questão"));
     const area = h("div");
     main.appendChild(area);
     let estado = null;
@@ -488,7 +514,7 @@
       const url = imagemURL || (imagem ? URL.createObjectURL(imagem) : null);
       const box = h("section", { class: "card" });
       if (url) box.appendChild(h("div", { class: "print-box" }, h("img", { src: url, alt: "Print da questão" })));
-      box.appendChild(h("div", { class: "card-corpo" }, carregando(reler ? "Relendo com o Sonnet…" : "Lendo a questão com o Haiku…")));
+      box.appendChild(h("div", { class: "card-corpo" }, carregando(reler ? "Relendo a questão com o " + rotuloModelo("reler") + "…" : "Lendo a questão com o " + rotuloModelo("ler") + "…")));
       area.appendChild(box);
       const fd = new FormData();
       if (imagem) fd.append("imagem", imagem, imagem.name || "print.png");
@@ -510,29 +536,31 @@
     function cartao() {
       const d = estado.dados;
       limpar(area);
+      const temas = [...new Set(materias.map((m) => m.tema).filter(Boolean))];
+      const dlTema = h("datalist", { id: "lista-temas" }, temas.map((t) => h("option", { value: t })));
       const dlMat = h("datalist", { id: "lista-materias" }, materias.map((m) => h("option", { value: m.nome })));
       const dlAss = h("datalist", { id: "lista-assuntos" });
-      const dlTop = h("datalist", { id: "lista-topicos" });
+      const fTema = h("input", { class: "inp", value: d.tema || "", list: "lista-temas" });
       const fMateria = h("input", { class: "inp", value: d.materia, list: "lista-materias" });
       const fAssunto = h("input", { class: "inp", value: d.assunto || "", list: "lista-assuntos" });
-      const fTopico = h("input", { class: "inp", value: d.topico, list: "lista-topicos" });
-      const fRef = h("input", { class: "inp", value: d.dispositivo_ref, placeholder: "ex.: CF/88, art. 5º, XI" });
       const fProva = h("input", { class: "inp", value: d.tec_prova || "", placeholder: "VUNESP - 2026 - Cargo (Órgão)" });
-      const fCodigo = h("input", { class: "inp", value: d.tec_codigo || "", placeholder: "3786935" });
       const daMateria = () => topicos.filter((t) => t.materia.toLowerCase() === fMateria.value.trim().toLowerCase());
       function atualizarListas() {
-        limpar(dlAss); limpar(dlTop);
-        [...new Set(daMateria().map((t) => t.assunto).filter(Boolean))].forEach((a) => dlAss.appendChild(h("option", { value: a })));
-        daMateria().forEach((t) => dlTop.appendChild(h("option", { value: t.nome })));
+        limpar(dlAss);
+        daMateria().forEach((t) => dlAss.appendChild(h("option", { value: t.nome })));
       }
       const avisoTop = h("div", { class: "ajuda" });
       function checarTopico() {
-        const existe = daMateria().find((t) => t.nome.toLowerCase() === fTopico.value.trim().toLowerCase());
-        avisoTop.textContent = existe ? "Tópico existente · " + nomeEtapa(existe.etapa, topicosResp.max_etapa).toLowerCase() + " · próxima revisão " + relativo(existe.proxima_revisao, hojeISO())
-          : "Tópico novo: primeira revisão amanhã.";
+        const existe = daMateria().find((t) => t.nome.toLowerCase() === fAssunto.value.trim().toLowerCase());
+        avisoTop.textContent = existe ? "Assunto já cadastrado · " + nomeEtapa(existe.etapa, topicosResp.max_etapa).toLowerCase() + " · próxima revisão " + relativo(existe.proxima_revisao, hojeISO())
+          : "Assunto novo: primeira revisão amanhã.";
       }
-      fMateria.addEventListener("input", () => { atualizarListas(); checarTopico(); });
-      fTopico.addEventListener("input", checarTopico);
+      fMateria.addEventListener("input", () => {
+        atualizarListas(); checarTopico();
+        const m = materias.find((x) => x.nome.toLowerCase() === fMateria.value.trim().toLowerCase());
+        if (m && m.tema) fTema.value = m.tema;
+      });
+      fAssunto.addEventListener("input", checarTopico);
       atualizarListas(); checarTopico();
 
       const fEnun = h("textarea", { class: "inp", "aria-label": "Enunciado", rows: "2", style: { fontSize: "16px" } });
@@ -560,11 +588,6 @@
               onclick: () => { gabarito = a.letra; gabEditado = true; if (situacao === "acertou") marcada = a.letra; desenharAlts(); desenharSituacao(); } }, a.letra),
             ta));
         });
-        altsBox.appendChild(h("div", { class: "linha", style: { padding: "8px 2px 0", fontSize: "13px" } },
-          h("span", { class: "mudo" }, "Clique na letra para marcar o gabarito (a linha fica verde)."),
-          h("span", { class: "espaco" }),
-          h("button", { class: "lnk", onclick: () => { alts.push({ letra: String.fromCharCode(65 + alts.length), texto: "" }); desenharAlts(); } }, "+ alternativa"),
-          alts.length > 2 ? h("button", { class: "lnk", onclick: () => { alts.pop(); desenharAlts(); } }, "− alternativa") : null));
       }
 
       function desenharSituacao() {
@@ -580,7 +603,7 @@
       desenharAlts();
       desenharSituacao();
 
-      const btnSalvar = h("button", { class: "btn prim lg", onclick: salvar }, "Confirmar", h("span", { class: "tecla" }, "Ctrl+Enter"));
+      const btnSalvar = h("button", { class: "btn prim lg", onclick: salvar }, "Confirmar");
       const imgBox = estado.imagemURL ? h("div", { class: "print-box" }, h("img", { src: estado.imagemURL, alt: "Print da questão", title: "Clique para ampliar",
         onclick: (ev) => ev.currentTarget.parentElement.classList.toggle("aberto") })) : null;
 
@@ -589,13 +612,10 @@
         h("div", { class: "card-corpo" },
           d.confianca < 0.8 ? h("div", { style: { marginBottom: "16px" } }, alerta("aviso", "Leitura com pouca confiança. Confira os campos. " + (d.observacoes || ""))) : null,
           h("div", { class: "cad-campos" },
+            h("label", { class: "campo" }, h("span", null, "Tema"), fTema),
             h("label", { class: "campo" }, h("span", null, "Matéria"), fMateria),
-            h("label", { class: "campo" }, h("span", null, "Assunto"), fAssunto),
-            h("div", { class: "grade g2", style: { gap: "14px" } },
-              h("label", { class: "campo" }, h("span", null, "Código no Tec"), fCodigo),
-              h("label", { class: "campo" }, h("span", null, "Dispositivo da lei"), fRef)),
-            h("label", { class: "campo" }, h("span", null, "Prova"), fProva),
-            h("label", { class: "campo largo" }, h("span", null, "Tópico de revisão"), fTopico, avisoTop)),
+            h("label", { class: "campo" }, h("span", null, "Assunto"), fAssunto, avisoTop),
+            h("label", { class: "campo largo" }, h("span", null, "Prova"), fProva)),
           h("div", { class: "campo", style: { marginTop: "18px" } }, h("span", null, "Enunciado"), fEnun),
           h("div", { class: "campo", style: { marginTop: "14px" } }, h("span", null, "Alternativas"), altsBox),
           h("div", { class: "campo", style: { marginTop: "16px" } }, h("span", null, "Situação no Tec"), situacaoBox)),
@@ -604,21 +624,21 @@
           h("button", { class: "btn fant", onclick: telaColar }, "Descartar"),
           h("span", { class: "espaco" }),
           h("span", { class: "leitura", title: d.observacoes || "" }, "Leitura " + Math.round((d.confianca || 0) * 100) + "% confiável")),
-        dlMat, dlAss, dlTop));
+        dlTema, dlMat, dlAss));
 
       async function salvar() {
         btnSalvar.disabled = true;
         try {
           const r = await api("/api/questoes", { method: "POST", body: {
-            materia: fMateria.value, assunto: fAssunto.value, lei_seca: d.lei_seca, topico: fTopico.value, dispositivo_ref: fRef.value,
-            tec_codigo: fCodigo.value, tec_prova: fProva.value,
+            tema: fTema.value, materia: fMateria.value, assunto: fAssunto.value, lei_seca: d.lei_seca, dispositivo_ref: d.dispositivo_ref || "",
+            tec_codigo: d.tec_codigo || "", tec_prova: fProva.value,
             enunciado: fEnun.value, alternativas: alts, situacao, marcada, gabarito, gabarito_editado: gabEditado, upload_id: d.upload_id,
           } });
-          let msg = "Questão salva em " + fTopico.value + ".";
-          if (r.voltou_etapa_0) msg += " Erro novo no Tec: o tópico volta para revisão amanhã.";
+          let msg = "Questão salva em " + fAssunto.value + ".";
+          if (r.voltou_etapa_0) msg += " Erro novo no Tec: o assunto volta para revisão amanhã.";
           toast(msg);
-          if (r.topico_novo) topicos.push({ id: r.topico_id, nome: fTopico.value, assunto: fAssunto.value, materia: fMateria.value, etapa: 0, proxima_revisao: somaDias(hojeISO(), 1) });
-          if (!materias.find((m) => m.nome.toLowerCase() === fMateria.value.trim().toLowerCase())) materias.push({ nome: fMateria.value.trim() });
+          if (r.topico_novo) topicos.push({ id: r.topico_id, nome: fAssunto.value, materia: fMateria.value, etapa: 0, proxima_revisao: somaDias(hojeISO(), 1) });
+          if (!materias.find((m) => m.nome.toLowerCase() === fMateria.value.trim().toLowerCase())) materias.push({ nome: fMateria.value.trim(), tema: fTema.value.trim() });
           atualizarPainel();
           telaColar();
           window.scrollTo(0, 0);
@@ -645,19 +665,17 @@
         h("div", { class: "titulo" }, opc.titulo,
           c ? h("span", { class: "cont" }, " (", h("b", null, String(c.resolvidas)), " Resolvidas, ", h("b", { class: "ok" }, String(c.acertos)), " Acertos e ", h("b", { class: "erro" }, String(c.erros)), " Erros)") : null),
         h("div", null, "Matéria: ", h("a", { href: "#/topicos" }, opc.materia)),
-        h("div", null, "Assunto: ", h("a", { href: "#/topico/" + q.topico_id }, opc.assunto || opc.topico)),
-        opc.assunto && opc.topico ? h("div", { class: "mudo", style: { fontSize: "13px" } }, "Tópico de revisão: " + opc.topico) : null),
+        h("div", null, "Assunto: ", h("a", { href: "#/topico/" + q.topico_id }, opc.topico || opc.assunto))),
       opc.acoes && opc.acoes.length ? h("div", { class: "acoes-q" }, opc.acoes) : null);
     let prova;
     if (q.origem === "real") {
       prova = h("div", { class: "q-prova" }, icone("link"),
         q.tec_codigo ? h("span", { class: "cod" }, "#" + q.tec_codigo) : null,
         h("span", null, q.tec_prova || "Questão real do TecConcursos"),
-        h("span", { class: "espaco" }),
-        q.resultado_no_tec === "errou" ? h("span", { class: "etq erro" }, "errou no Tec") : q.resultado_no_tec === "acertou" ? h("span", { class: "etq ok" }, "acertou no Tec") : null);
+        h("span", { class: "espaco" }));
     } else {
       prova = h("div", { class: "q-prova" }, icone("link"), h("span", null, "Inédita – estilo Vunesp"),
-        h("span", { class: "espaco" }), q.fonte_externa ? h("span", { class: "etq aviso" }, "texto de fonte externa") : h("span", { class: "etq azul" }, "gerada pelo Claude"));
+        h("span", { class: "espaco" }));
     }
     return [cab, prova];
   }
@@ -668,11 +686,13 @@
   async function pagSessao(arg) {
     let st = arg ? await api("/api/sessao/" + arg) : await api("/api/sessao");
     limpar(main);
+    const bt = bannerTeste();
 
     if (!st.sessao) {
       const p = painelCache;
       const n = p ? p.vencidos_na_sessao : 0;
       main.appendChild(cabecalho("Sessão diária", "Todas as matérias vencidas, misturadas, como num simulado."));
+      if (bt) main.appendChild(bt);
       if (!n) {
         main.appendChild(card(null, null, null, h("div", { class: "vazio" }, "Nenhum tópico com questões vence hoje.",
           p && p.sem_questoes.length ? h("div", { style: { marginTop: "6px" } }, plural(p.sem_questoes.length, "tópico vencido", "tópicos vencidos") + " sem questões. Gere questões para eles em Hoje.") : null)));
@@ -686,10 +706,11 @@
           await atualizarPainel(); desenharNav("sessao");
           rodar();
         } catch (e) { toast(e.message, true); btn.disabled = false; }
-      } }, icone("sessao"), "Começar sessão", h("span", { class: "tecla" }, "Enter"));
+      } }, icone("sessao"), "Começar sessão");
+      const nq = p && p.modo_teste ? Math.min(60, p.totais.questoes) : n;
       main.appendChild(card(null, null, null, h("div", { class: "card-corpo", style: { textAlign: "center", padding: "40px 18px" } },
-        h("div", { class: "grande-num" }, String(n)),
-        h("div", { class: "grande-leg" }, n === 1 ? "tópico para revisar" : "tópicos para revisar"), btn)));
+        h("div", { class: "grande-num" }, String(nq)),
+        h("div", { class: "grande-leg" }, p && p.modo_teste ? (nq === 1 ? "questão no modo de teste" : "questões no modo de teste") : (n === 1 ? "assunto para revisar" : "assuntos para revisar")), btn)));
       aoTeclar((ev) => { if (ev.key === "Enter" && !btn.disabled) btn.click(); });
       return;
     }
@@ -730,6 +751,7 @@
       const riscadas = new Set();
 
       limpar(main);
+      if (bannerTeste()) main.appendChild(bannerTeste());
       main.appendChild(h("div", { class: "sessao-barra" },
         h("span", { class: "num" }, feitas + " de " + total + " respondidas"),
         h("div", { class: "progresso", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": String(total), "aria-valuenow": String(feitas) },
@@ -773,15 +795,21 @@
         });
       }
 
+      const vizinho = (passo) => {
+        for (let j = i + passo; j >= 0 && j < total; j += passo) if (!st.itens[j].invalidada) return j;
+        return -1;
+      };
+      const anterior = vizinho(-1), seguinte = vizinho(1);
       function desenharAcoes() {
         limpar(acoes);
+        acoes.appendChild(h("button", { class: "btn lg seta", disabled: anterior === -1, title: "Questão anterior", "aria-label": "Questão anterior", onclick: () => mostrar(anterior) }, icone("voltar")));
         if (!respondida) {
-          acoes.appendChild(h("button", { class: "btn prim lg", disabled: !selecionada, onclick: responder }, "Responder", h("span", { class: "tecla" }, "Enter")));
-          acoes.appendChild(h("span", { class: "ajuda" }, "Teclas A–E marcam · botão direito risca a alternativa"));
+          acoes.appendChild(h("button", { class: "btn prim lg", disabled: !selecionada, onclick: responder }, "Responder"));
         } else {
-          const ultima = st.itens.every((x, j) => j === i || x.resposta !== null || x.invalidada);
-          acoes.appendChild(h("button", { class: "btn prim lg", onclick: () => rodar() }, ultima ? "Ver resultado" : "Próxima questão", h("span", { class: "tecla" }, "Enter")));
+          const terminou = st.itens.every((x) => x.resposta !== null || x.invalidada);
+          acoes.appendChild(h("button", { class: "btn prim lg", onclick: () => rodar() }, terminou ? "Ver resultado" : "Próxima questão"));
         }
+        acoes.appendChild(h("button", { class: "btn lg seta", disabled: seguinte === -1, title: "Próxima questão", "aria-label": "Próxima questão", onclick: () => mostrar(seguinte) }, icone("avancar")));
       }
 
       async function responder() {
@@ -805,6 +833,8 @@
         const k = ev.key.toUpperCase();
         if (!respondida && q.alternativas.some((a) => a.letra === k)) { selecionada = k; desenharAlts(); desenharAcoes(); ev.preventDefault(); }
         else if (ev.key === "Enter") { ev.preventDefault(); if (!respondida) responder(); else rodar(); }
+        else if (ev.key === "ArrowLeft" && anterior !== -1) { ev.preventDefault(); mostrar(anterior); }
+        else if (ev.key === "ArrowRight" && seguinte !== -1) { ev.preventDefault(); mostrar(seguinte); }
       });
     }
 
@@ -812,7 +842,8 @@
       rodarLimpeza();
       const r = st.resumo;
       limpar(main);
-      main.appendChild(cabecalho("Sessão concluída", fmtLonga(st.sessao.data), h("a", { href: "#/hoje", class: "btn" }, "Voltar para Hoje")));
+      main.appendChild(cabecalho(r.teste ? "Sessão de teste concluída" : "Sessão concluída", fmtLonga(st.sessao.data), h("a", { href: "#/hoje", class: "btn" }, "Voltar para Hoje")));
+      if (r.teste) main.appendChild(alerta("aviso", "Sessão de teste: etapas e datas de revisão não foram alteradas, e ela não entra nas estatísticas."));
       main.appendChild(h("section", { class: "card geral", style: { gridTemplateColumns: "1fr 1fr" } },
         h("div", { class: "numeros" },
           numero("Questões", r.total), numero("Aproveitamento", Math.round(r.pct) + "%"),
@@ -883,7 +914,7 @@
     async function pedir(modo) {
       btn.disabled = true;
       limpar(expl);
-      expl.appendChild(h("div", { style: { marginTop: "14px" } }, carregando("O Claude está escrevendo a explicação…")));
+      expl.appendChild(h("div", { style: { marginTop: "14px" } }, carregando("Explicando com o " + rotuloModelo("explicar") + "…")));
       try {
         const r = await api("/api/questoes/" + q.id + "/explicar", { method: "POST", body: { resposta, modo } });
         mostrarExpl(r.texto);
@@ -928,11 +959,10 @@
     const hoje = painelCache ? painelCache.hoje : hojeISO();
     limpar(main);
     const novas = topicos.filter((t) => t.novas > 0).length;
-    main.appendChild(cabecalho("Tópicos", plural(topicos.length, "tópico") + " em " + plural(new Set(topicos.map((t) => t.materia)).size, "matéria"),
-      h("button", { class: "btn prim", disabled: !novas, onclick: () => gerar(null), title: "Gera para todos os tópicos com questões novas" },
-        icone("gerar"), "Gerar questões" + (novas ? " (" + novas + ")" : ""))));
+    main.appendChild(cabecalho("Assuntos", plural(topicos.length, "assunto") + " em " + plural(new Set(topicos.map((t) => t.materia)).size, "matéria"),
+      botaoGerar(null, { desabilitado: !novas, titulo: "Gera para todos os assuntos com questões novas", rotulo: "Gerar questões" + (novas ? " (" + novas + ")" : "") })));
 
-    const busca = h("input", { class: "inp", type: "search", placeholder: "Buscar matéria, assunto ou tópico", value: filtroTopicos.busca, style: { maxWidth: "340px" } });
+    const busca = h("input", { class: "inp", type: "search", placeholder: "Buscar tema, matéria ou assunto", value: filtroTopicos.busca, style: { maxWidth: "340px" } });
     const tipos = [["todos", "Todos"], ["vencidos", "Vencidos"], ["novas", "Com questões novas"], ["baixo", "Banco baixo"], ["semtexto", "Sem texto-base"]];
     const seg = h("div", { class: "seg" });
     const corpo = h("div");
@@ -949,23 +979,22 @@
       limpar(corpo);
       const b = filtroTopicos.busca.trim().toLowerCase();
       const lista = topicos.filter((t) => {
-        if (b && !(t.nome + " " + t.assunto + " " + t.dispositivo_ref + " " + t.materia).toLowerCase().includes(b)) return false;
+        if (b && !(t.nome + " " + (t.tema || "") + " " + t.materia).toLowerCase().includes(b)) return false;
         if (filtroTopicos.tipo === "vencidos") return t.proxima_revisao <= hoje;
         if (filtroTopicos.tipo === "novas") return t.novas > 0;
         if (filtroTopicos.tipo === "baixo") return t.banco_baixo;
         if (filtroTopicos.tipo === "semtexto") return t.sem_texto_base;
         return true;
       });
-      if (!lista.length) { corpo.appendChild(card(null, null, null, h("div", { class: "vazio" }, topicos.length ? "Nenhum tópico com esse filtro." : "Nenhum tópico ainda. Comece cadastrando uma questão."))); return; }
+      if (!lista.length) { corpo.appendChild(card(null, null, null, h("div", { class: "vazio" }, topicos.length ? "Nenhum assunto com esse filtro." : "Nenhum assunto ainda. Comece cadastrando uma questão."))); return; }
       const tbody = h("tbody");
-      let matAtual = null, assAtual = null;
+      let temaAtual = null, matAtual = null;
       for (const t of lista) {
-        if (t.materia !== matAtual) { matAtual = t.materia; assAtual = null; tbody.appendChild(h("tr", { class: "grupo" }, h("td", { colspan: "5" }, t.materia))); }
-        if ((t.assunto || "") !== assAtual) { assAtual = t.assunto || ""; if (assAtual) tbody.appendChild(h("tr", { class: "subgrupo" }, h("td", { colspan: "5" }, assAtual))); }
+        if ((t.tema || "") !== temaAtual) { temaAtual = t.tema || ""; matAtual = null; tbody.appendChild(h("tr", { class: "grupo" }, h("td", { colspan: "5" }, temaAtual || "Sem tema"))); }
+        if (t.materia !== matAtual) { matAtual = t.materia; tbody.appendChild(h("tr", { class: "subgrupo" }, h("td", { colspan: "5" }, t.materia))); }
         const venc = t.proxima_revisao <= hoje;
         tbody.appendChild(h("tr", { class: "clic", onclick: () => { location.hash = "#/topico/" + t.id; } },
-          h("td", { style: { paddingLeft: "36px" } }, h("a", { href: "#/topico/" + t.id, onclick: (ev) => ev.stopPropagation(), style: { fontWeight: 600 } }, t.nome),
-            t.dispositivo_ref ? h("div", { class: "mudo", style: { fontSize: "13px" } }, t.dispositivo_ref) : null),
+          h("td", { style: { paddingLeft: "36px" } }, h("a", { href: "#/topico/" + t.id, onclick: (ev) => ev.stopPropagation(), style: { fontWeight: 600 } }, t.nome)),
           h("td", null, etapas(t.etapa, max_etapa)),
           h("td", null, venc ? h("span", { class: "etq azul" }, t.proxima_revisao === hoje ? "hoje" : "vencido " + relativo(t.proxima_revisao, hoje)) : h("span", { class: "t2" }, relativo(t.proxima_revisao, hoje))),
           h("td", { class: "num t2", style: { whiteSpace: "nowrap" } }, t.reais + " reais · " + t.geradas + " geradas"),
@@ -975,7 +1004,7 @@
             t.sem_texto_base ? h("span", { class: "etq aviso", title: "Sem texto-base, conferir dispositivos" }, "sem texto-base") : null))));
       }
       corpo.appendChild(h("section", { class: "card tab-wrap" }, h("table", { class: "tab" },
-        h("thead", null, h("tr", null, h("th", { style: { paddingLeft: "36px" } }, "Tópico"), h("th", null, "Etapa"), h("th", null, "Próxima revisão"), h("th", null, "Banco"), h("th", null, ""))),
+        h("thead", null, h("tr", null, h("th", { style: { paddingLeft: "36px" } }, "Assunto"), h("th", null, "Etapa"), h("th", null, "Próxima revisão"), h("th", null, "Banco"), h("th", null, ""))),
         tbody)));
     }
     desenhar();
@@ -986,9 +1015,9 @@
     const t = d.topico;
     const hoje = painelCache ? painelCache.hoje : hojeISO();
     limpar(main);
-    main.appendChild(h("a", { class: "voltar", href: "#/topicos" }, icone("voltar"), "Tópicos"));
-    main.appendChild(cabecalho(t.nome, [t.materia, t.assunto].filter(Boolean).join(" › "),
-      h("button", { class: "btn prim", onclick: () => gerar(t.id) }, icone("gerar"), "Gerar questões")));
+    main.appendChild(h("a", { class: "voltar", href: "#/topicos" }, icone("voltar"), "Assuntos"));
+    main.appendChild(cabecalho(t.nome, [t.tema, t.materia].filter(Boolean).join(" › "),
+      botaoGerar(t.id)));
 
     const b = d.banco;
     main.appendChild(h("div", { class: "grade g4" },
@@ -1003,25 +1032,23 @@
 
     const fNome = h("input", { class: "inp", value: t.nome });
     const fMat = h("input", { class: "inp", value: t.materia });
-    const fAss = h("input", { class: "inp", value: t.assunto || "" });
-    const fRef = h("input", { class: "inp", value: t.dispositivo_ref, placeholder: "ex.: CF/88, art. 5º, XI" });
-    main.appendChild(h("h2", { class: "secao-tit" }, "Dados do tópico"));
+    const fTema = h("input", { class: "inp", value: t.tema || "" });
+    main.appendChild(h("h2", { class: "secao-tit" }, "Dados do assunto"));
     main.appendChild(card(null, null, null, h("div", { class: "card-corpo" },
-      h("div", { class: "grade g2", style: { gap: "14px" } },
+      h("div", { class: "cad-campos" },
+        h("label", { class: "campo" }, h("span", null, "Tema"), fTema),
         h("label", { class: "campo" }, h("span", null, "Matéria"), fMat),
-        h("label", { class: "campo" }, h("span", null, "Assunto"), fAss),
-        h("label", { class: "campo" }, h("span", null, "Tópico de revisão"), fNome),
-        h("label", { class: "campo" }, h("span", null, "Dispositivo da lei (com a sigla)"), fRef)),
+        h("label", { class: "campo" }, h("span", null, "Assunto"), fNome)),
       h("div", { class: "linha", style: { marginTop: "16px" } },
         h("button", { class: "btn prim", onclick: async () => {
-          try { await api("/api/topicos/" + t.id, { method: "PATCH", body: { nome: fNome.value, materia: fMat.value, assunto: fAss.value, dispositivo_ref: fRef.value } }); toast("Tópico atualizado."); rotear(); }
+          try { await api("/api/topicos/" + t.id, { method: "PATCH", body: { nome: fNome.value, materia: fMat.value, tema: fTema.value } }); toast("Assunto atualizado."); rotear(); }
           catch (e) { toast(e.message, true); }
         } }, "Salvar"),
         h("span", { class: "espaco" }),
         h("button", { class: "btn perigo", onclick: async () => {
-          if (!confirm("Apagar o tópico \"" + t.nome + "\" com todas as questões e revisões? Não dá para desfazer.")) return;
+          if (!confirm("Apagar o assunto \"" + t.nome + "\" com todas as questões e revisões? Não dá para desfazer.")) return;
           await api("/api/topicos/" + t.id, { method: "DELETE" }); location.hash = "#/topicos";
-        } }, "Apagar tópico")))));
+        } }, "Apagar assunto")))));
 
     if (t.lei_seca) {
       main.appendChild(h("h2", { class: "secao-tit" }, "Texto-base", d.lei ? h("a", { class: "sub", href: "#/lei/" + d.lei.id }, d.lei.sigla + " – " + d.lei.nome) : null));
@@ -1035,7 +1062,7 @@
         main.appendChild(h("section", { class: "card" }, pre));
       } else {
         main.appendChild(alerta("aviso", "Sem texto-base, conferir dispositivos. ",
-          d.lei ? "A lei está na biblioteca, mas o dispositivo não foi encontrado. Confira o campo \"Dispositivo da lei\"." : "Envie o PDF da lei na Biblioteca de leis e confira o campo \"Dispositivo da lei\"."));
+          "Envie o PDF da lei na Biblioteca de leis. O app liga os artigos cobrados nas questões deste assunto automaticamente."));
       }
     }
 
@@ -1088,7 +1115,7 @@
     acoes.appendChild(h("span", { class: "ajuda" }, "vista " + plural(q.vezes_vista, "vez", "vezes") + " · criada em " + fmtData(q.criado_em)));
     acoes.appendChild(invBox);
     return questaoExpansivel(q, {
-      titulo: q.origem === "real" ? "Questão real" : "Questão inédita", materia: t.materia, assunto: q.assunto || t.assunto, topico: t.nome,
+      titulo: q.origem === "real" ? "Questão real" : "Questão inédita", materia: t.materia, assunto: t.nome, topico: t.nome,
       resposta: q.origem === "real" && q.resultado_no_tec !== "nao_respondeu" ? q.marcada_no_tec : null, tags, extras: acoes,
     });
   }
@@ -1326,6 +1353,20 @@
     }
     desenharTema();
     main.appendChild(card("Aparência", "O tema vale para este navegador.", null, h("div", { class: "card-corpo" }, h("div", { class: "campo" }, h("span", null, "Tema"), h("div", null, segTema)))));
+
+    let teste = !!c.modo_teste_sessao;
+    const segTeste = h("div", { class: "seg" });
+    function desenharTeste() {
+      limpar(segTeste);
+      [[false, "Normal (revisão espaçada)"], [true, "Teste (todas as questões)"]].forEach(([v, n]) => segTeste.appendChild(h("button", { "aria-pressed": String(teste === v), onclick: async () => {
+        teste = v; desenharTeste();
+        await salvar({ modo_teste_sessao: v }, v ? "Modo de teste ligado. A sessão diária traz todas as questões." : "Modo normal. Sessões de teste descartadas.");
+        await atualizarPainel(); desenharNav("config");
+      } }, n)));
+    }
+    desenharTeste();
+    main.appendChild(card("Sessão diária", "No modo de teste, a sessão traz todas as questões cadastradas, sem olhar a data de revisão. Responder não muda etapas, datas nem estatísticas. Ao voltar para o normal, as sessões de teste são descartadas.", null,
+      h("div", { class: "card-corpo" }, h("div", { class: "campo" }, h("span", null, "Modo"), h("div", null, segTeste)))));
 
     let modo = c.modo_ia;
     const segModo = h("div", { class: "seg" });

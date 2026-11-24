@@ -48,7 +48,7 @@ SCHEMA_LER = {
         "tec_codigo": {"type": "string"},
         "tec_prova": {"type": "string"},
         "lei_seca": {"type": "boolean"},
-        "topico": {"type": "string"},
+        "tema": {"type": "string"},
         "dispositivo_ref": {"type": "string"},
         "lei_sigla": {"type": "string"},
         "enunciado": {"type": "string"},
@@ -60,7 +60,7 @@ SCHEMA_LER = {
         "observacoes": {"type": "string"},
     },
     "required": [
-        "materia", "assunto", "tec_codigo", "tec_prova", "lei_seca", "topico", "dispositivo_ref", "lei_sigla", "enunciado",
+        "materia", "assunto", "tec_codigo", "tec_prova", "lei_seca", "tema", "dispositivo_ref", "lei_sigla", "enunciado",
         "alternativas", "situacao", "marcada", "gabarito", "confianca", "observacoes",
     ],
     "additionalProperties": False,
@@ -140,8 +140,8 @@ Se o cabeçalho não estiver visível (texto colado ou print cortado): em "mater
 
 Classificação:
 - "lei_seca": true se a matéria é cobrada por texto de lei; false para Português, Matemática, Informática, Raciocínio Lógico e afins.
-- "topico": a unidade de revisão, mais específica que o assunto. Em lei seca, no nível de inciso ou parágrafo, no formato "Art. 5º, XI – inviolabilidade de domicílio". Em outras matérias, o tema exato (ex.: "Crase antes de pronome"). Reaproveite um tópico existente quando for o mesmo.
-- "dispositivo_ref": em lei seca, a referência completa com a sigla da lei, ex.: "CF/88, art. 5º, XI" ou "CPC, art. 219, parágrafo único". Fora de lei seca, "".
+- "tema": a grande área da matéria, sem o complemento entre parênteses. Ex.: matéria "Direito Administrativo (Doutrina e Leis Federais)" -> tema "Direito Administrativo"; "Língua Portuguesa (Português)" -> "Língua Portuguesa". Reaproveite um tema existente quando servir.
+- "dispositivo_ref": em lei seca, o dispositivo exato cobrado pela questão, com a sigla da lei com a sigla da lei, ex.: "CF/88, art. 5º, XI" ou "CPC, art. 219, parágrafo único". Fora de lei seca, "".
 - "lei_sigla": a sigla da lei como aparece na lista de leis da biblioteca, quando houver correspondência; senão a sigla usual (ex.: "CF/88"). Fora de lei seca, "".
 """
 
@@ -179,7 +179,7 @@ def prompt_ler(texto: str | None, tem_imagem: bool, materias: list[str], topicos
     if texto:
         partes.append("Questão colada como texto:\n<<<\n" + texto.strip() + "\n>>>")
     partes.append("Matérias existentes: " + ("; ".join(materias) if materias else "(nenhuma)"))
-    partes.append("Tópicos existentes (matéria › assunto › tópico):\n" + ("\n".join(topicos[:400]) if topicos else "(nenhum)"))
+    partes.append("Assuntos existentes (tema › matéria › assunto):\n" + ("\n".join(topicos[:400]) if topicos else "(nenhum)"))
     partes.append("Leis na biblioteca (sigla – nome): " + ("; ".join(leis) if leis else "(nenhuma)"))
     return "\n\n".join(partes)
 
@@ -188,7 +188,7 @@ def prompt_gerar(ctx: dict) -> tuple[str, str]:
     """Retorna (bloco_fixo, bloco_variavel). O fixo vem primeiro para aproveitar cache."""
     fixo = [f"ESTILO DA BANCA\n{ctx['estilo']}"]
     if ctx.get("texto_base"):
-        fixo.append(f"TEXTO-BASE OFICIAL ({ctx.get('dispositivo_ref') or ctx['topico']})\n<<<\n{ctx['texto_base']}\n>>>")
+        fixo.append(f"TEXTO-BASE OFICIAL (artigos cobrados no assunto; >>> marca o dispositivo)\n<<<\n{ctx['texto_base']}\n>>>")
     elif ctx.get("material_apoio"):
         fixo.append(f"MATERIAL DE APOIO\n<<<\n{ctx['material_apoio']}\n>>>")
     elif ctx.get("lei_seca"):
@@ -197,7 +197,7 @@ def prompt_gerar(ctx: dict) -> tuple[str, str]:
     else:
         fixo.append("MATERIAL DE APOIO: nenhum. Matéria que não é lei seca: use as questões reais e seu conhecimento.")
 
-    var = [f"MATÉRIA: {ctx['materia']}\nTÓPICO: {ctx['topico']}"]
+    var = [f"MATÉRIA: {ctx['materia']}\nASSUNTO: {ctx['topico']}"]
     if ctx["reais"]:
         linhas = []
         for q in ctx["reais"]:

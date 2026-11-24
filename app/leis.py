@@ -227,6 +227,38 @@ def texto_base(topico: dict, limite: int = 12000) -> str:
     return texto
 
 
+def texto_base_ref(ref: str) -> str:
+    """Texto-base de uma referência solta ("LIA, art. 1º, §1º")."""
+    sigla, chave = parse_referencia(ref)
+    lei = achar_lei(sigla) if sigla else None
+    if not lei or not chave:
+        return ""
+    return texto_base({"lei_id": lei["id"], "dispositivo_chave": chave})
+
+
+def texto_base_topico(topico_id: int, limite: int = 20000) -> str:
+    """Texto-base do assunto: junta os artigos de todos os dispositivos cobrados nas questões dele."""
+    refs = [r["dispositivo_ref"] for r in db.rows(
+        "SELECT dispositivo_ref FROM topico WHERE id = ? AND dispositivo_ref != '' "
+        "UNION ALL SELECT dispositivo_ref FROM questao WHERE topico_id = ? AND status = 'ativa' AND dispositivo_ref != ''",
+        (topico_id, topico_id))]
+    vistos, partes = set(), []
+    for ref in refs:
+        sigla, chave = parse_referencia(ref)
+        lei = achar_lei(sigla) if sigla else None
+        if not lei or not chave:
+            continue
+        artigo = (lei["id"], chave.split("|")[0])
+        if artigo in vistos:
+            continue
+        vistos.add(artigo)
+        t = texto_base({"lei_id": lei["id"], "dispositivo_chave": chave})
+        if t:
+            partes.append(f"[{lei['sigla']}]\n{t}")
+    texto = "\n\n".join(partes)
+    return texto[:limite]
+
+
 def importar_lei(nome: str, sigla: str, pdf_path: Path, texto: str) -> dict:
     """Cria ou substitui a lei e religa os tópicos pela referência."""
     disps = dividir_dispositivos(texto)

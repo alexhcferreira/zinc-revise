@@ -6,12 +6,30 @@ import math
 import random
 from datetime import date, timedelta
 
-from . import db, srs
+from . import config, db, srs
 from .questoes import ids_vistos_recentes, questao_publica, srs_cfg
 
 
-def sessao_aberta() -> dict | None:
-    return db.row("SELECT * FROM sessao WHERE status = 'aberta' ORDER BY id LIMIT 1")
+def modo_teste() -> bool:
+    return bool(config.get("modo_teste_sessao"))
+
+
+def sessao_aberta(teste: bool | None = None) -> dict | None:
+    """Sessão aberta do modo atual (normal ou teste)."""
+    if teste is None:
+        teste = modo_teste()
+    return db.row("SELECT * FROM sessao WHERE status = 'aberta' AND teste = ? ORDER BY id LIMIT 1", (int(teste),))
+
+
+def descartar_sessoes_teste() -> None:
+    db.get_conn().execute("DELETE FROM sessao WHERE teste = 1")
+
+
+def topicos_com_questoes() -> list[dict]:
+    return db.rows(
+        """SELECT t.*, m.nome AS materia FROM topico t JOIN materia m ON m.id = t.materia_id
+           WHERE EXISTS (SELECT 1 FROM questao q WHERE q.topico_id = t.id AND q.status = 'ativa')
+           ORDER BY m.nome, t.nome""")
 
 
 def topicos_vencidos(hoje: date | None = None) -> list[dict]:
@@ -21,7 +39,7 @@ def topicos_vencidos(hoje: date | None = None) -> list[dict]:
         """SELECT t.*, m.nome AS materia,
                   (julianday(?) - julianday(t.proxima_revisao)) AS atraso,
                   (SELECT COUNT(*) FROM sessao_item si JOIN sessao s ON s.id = si.sessao_id
-                     WHERE si.topico_id = t.id AND si.correta = 0 AND si.invalidada = 0 AND s.data >= ?)
+                     WHERE si.topico_id = t.id AND si.correta = 0 AND si.invalidada = 0 AND s.teste = 0 AND s.data >= ?)
                 + (SELECT COUNT(*) FROM questao q
                      WHERE q.topico_id = t.id AND q.resultado_no_tec = 'errou' AND q.criado_em >= ?) AS erros_recentes
            FROM topico t JOIN materia m ON m.id = t.materia_id
@@ -80,6 +98,8 @@ def montar_sessao(rng: random.Random | None = None) -> dict:
     if aberta:
         return estado(aberta["id"])
     rng = rng or random.Random()
+    if modo_teste():
+        return _montar_sessao_teste(rng)
     cfg = srs_cfg()
     vencidos = topicos_vencidos()
     limite = int(cfg["limite_diario"] or 0)
@@ -102,6 +122,25 @@ def montar_sessao(rng: random.Random | None = None) -> dict:
     with db.tx() as conn:
         sid = conn.execute(
             "INSERT INTO sessao(data, iniciada_em) VALUES(?, ?)", (db.hoje().isoformat(), db.agora())
+        ).lastrowid
+        conn.executemany(
+            "INSERT INTO sessao_item(sessao_id, topico_id, questao_id, ordem) VALUES(?, ?, ?, ?)",
+            [(sid, tid, qid, i) for i, (tid, qid) in enumerate(itens)],
+        )
+    return estado(sid)
+
+
+def _montar_sessao_teste(rng: random.Random, limite: int = 60) -> dict:
+    """Modo de teste: todas as questões ativas, de todos os assuntos, sem olhar a data de revisão."""
+    itens = [(q["topico_id"], q["id"]) for q in db.rows(
+        "SELECT q.id, q.topico_id FROM questao q WHERE q.status = 'ativa'")]
+    if not itens:
+        return {"sessao": None, "sem_questoes": []}
+    rng.shuffle(itens)
+    itens = itens[:limite]
+    with db.tx() as conn:
+        sid = conn.execute(
+            "INSERT INTO sessao(data, iniciada_em, teste) VALUES(?, ?, 1)", (db.hoje().isoformat(), db.agora())
         ).lastrowid
         conn.executemany(
             "INSERT INTO sessao_item(sessao_id, topico_id, questao_id, ordem) VALUES(?, ?, ?, ?)",
@@ -172,6 +211,11 @@ def concluir(sessao_id: int) -> dict:
         raise ValueError("Sessão não está aberta.")
     if pendentes(sessao_id):
         raise ValueError("Ainda há questões sem resposta.")
+    if s["teste"]:
+        # modo de teste: fecha sem mexer em etapas, datas nem contagem de vezes vista
+        db.get_conn().execute("UPDATE sessao SET status = 'concluida', concluida_em = ? WHERE id = ?",
+                              (db.agora(), sessao_id))
+        return estado(sessao_id)
     cfg = srs_cfg()
     hoje = db.hoje()
     por_topico = db.rows(
@@ -206,12 +250,31 @@ def concluir(sessao_id: int) -> dict:
 
 
 def resumo_sessao(sessao_id: int) -> dict:
-    revs = db.rows(
+    s = db.row("SELECT teste FROM sessao WHERE id = ?", (sessao_id,))
+    if s and s["teste"]:
+        revs = db.rows(
+            """SELECT si.topico_id, t.nome AS topico, m.nome AS materia, t.etapa AS etapa_antes, t.etapa AS etapa_depois,
+                      t.proxima_revisao AS proxima,
+                      SUM(CASE WHEN si.invalidada = 0 AND si.correta = 1 THEN 1 ELSE 0 END) AS acertos,
+                      SUM(CASE WHEN si.invalidada = 0 THEN 1 ELSE 0 END) AS total
+               FROM sessao_item si JOIN topico t ON t.id = si.topico_id JOIN materia m ON m.id = t.materia_id
+               WHERE si.sessao_id = ? GROUP BY si.topico_id ORDER BY m.nome, t.nome""", (sessao_id,))
+        revs = [r for r in revs if r["total"]]
+    else:
+        revs = _revisoes(sessao_id)
+    return _montar_resumo(sessao_id, revs, bool(s and s["teste"]))
+
+
+def _revisoes(sessao_id: int) -> list[dict]:
+    return db.rows(
         """SELECT r.*, t.nome AS topico, m.nome AS materia FROM revisao r
            JOIN topico t ON t.id = r.topico_id JOIN materia m ON m.id = t.materia_id
            WHERE r.sessao_id = ? ORDER BY m.nome, t.nome""",
         (sessao_id,),
     )
+
+
+def _montar_resumo(sessao_id: int, revs: list[dict], teste: bool) -> dict:
     acertos = sum(r["acertos"] for r in revs)
     total = sum(r["total"] for r in revs)
     erradas = db.rows(
@@ -220,7 +283,7 @@ def resumo_sessao(sessao_id: int) -> dict:
         (sessao_id,),
     )
     return {
-        "topicos": revs, "acertos": acertos, "total": total,
+        "topicos": revs, "acertos": acertos, "total": total, "teste": teste,
         "pct": round(100 * acertos / total, 1) if total else 0,
         "erradas": [{"item_id": e["item_id"], "resposta": e["resposta"], "questao_id": e["id"]} for e in erradas],
     }

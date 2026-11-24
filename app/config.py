@@ -32,6 +32,7 @@ DEFAULTS: dict[str, Any] = {
     "minimo_geradas": 5,
     "limiar_banco_baixo": 6,
     "limite_diario": 0,               # 0 = sem limite
+    "modo_teste_sessao": False,       # sessão com todas as questões, sem mexer na revisão
     "estilo_banca": ESTILO_VUNESP,
 }
 
