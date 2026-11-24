@@ -198,6 +198,6 @@ Referências:
 - [x] PC sempre ligado
 - [x] Tailscale instalado em casa e no serviço
 - [x] Claude Code instalado
-- [ ] `claude` logado na assinatura (rodar `claude` uma vez e fazer login no navegador). O executável está em `%USERPROFILE%\.local\bin\claude.exe` (versão 2.1.331). Usar esse caminho completo em `CLAUDE_BIN`
+- [x] `claude` logado na assinatura (rodar `claude` uma vez e fazer login no navegador). O executável está em `%USERPROFILE%\.local\bin\claude.exe` (versão 2.1.331). Usar esse caminho completo em `CLAUDE_BIN`
 - [x] Python 3.13.7
 - [ ] Liberar a porta 8443 no `tailscale serve`, só na tailnet

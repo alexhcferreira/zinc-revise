@@ -44,6 +44,48 @@ TecConcursos ──► cola questão (texto ou print) ──► cartão de confi
 - [Regras de negócio](REGRAS_DE_NEGOCIO.md): o que o app faz e como decide cada coisa
 - [Arquitetura e infraestrutura](ARQUITETURA.md): stack, hospedagem, integração com o Claude, modelo de dados e custos
 
+## Como rodar
+
+```powershell
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 3001
+```
+
+Abra `http://localhost:3001` (senha padrão `9993`). Os dados ficam em `data/` (banco SQLite, prints, PDFs).
+
+Para subir sozinho no logon e liberar o acesso pela tailnet (porta 8443, sem Funnel):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\instalar-tarefa.ps1
+```
+
+Testes: `.venv\Scripts\python -m pytest -q tests` (a IA é simulada; nenhum teste chama o Claude).
+
+## Código
+
+| Pasta / arquivo | O que tem |
+|---|---|
+| `app/main.py` | Rotas da API (FastAPI) e login |
+| `app/ia.py` | Camada de IA: modo assinatura (`claude -p`) e modo API key, prompts e schemas JSON |
+| `app/questoes.py` | Cadastro de questões reais, tópicos, situação do banco |
+| `app/jobs.py` | Fila do "Gerar questões" (worker em thread; Batch API no modo API key) |
+| `app/sessao.py` | Sessão diária: sorteio, respostas, regra adaptativa |
+| `app/srs.py` | Escada de intervalos e regra adaptativa (funções puras) |
+| `app/leis.py` | Biblioteca de leis: PDF → artigo › parágrafo › inciso › alínea, texto-base |
+| `app/stats.py` | Estatísticas no estilo do TecConcursos |
+| `static/` | Front em JS puro, sem build |
+
+## Design
+
+Visual de plataforma de questões: limpo, claro e organizado, com a tela de questão no mesmo formato do TecConcursos (Questão N de M, Matéria, Assunto, linha da prova com o código `#` e alternativas em linhas).
+
+- Fonte Source Sans 3 em todo o app.
+- Azul como cor principal; verde e vermelho só para acerto e erro (cores dos gráficos validadas para daltonismo).
+- Menu lateral com ícones, cartões brancos com borda suave.
+- Cadastro: print em cima, questão recriada embaixo. Matéria e assunto são copiados exatamente como aparecem no print do Tec.
+- Três temas, escolhidos em Configurações: **Claro**, **Claro suave** e **Escuro**.
+
 ## Status
 
-📝 Fase de especificação. Nenhum código ainda.
+✅ Primeira versão funcional: cadastro (print ou texto), geração, sessão diária, revisão espaçada, biblioteca de leis, estatísticas, configurações e os três temas.

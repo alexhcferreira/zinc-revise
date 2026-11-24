@@ -1,0 +1,9 @@
+fastapi==0.165.0
+uvicorn[standard]==0.54.0
+python-multipart==0.0.34
+argon2-cffi==25.1.0
+anthropic==2.13.0
+pdfplumber==0.11.11
+# testes
+pytest==9.2.0
+httpx==0.28.1
