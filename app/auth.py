@@ -23,11 +23,12 @@ def garantir_senha() -> None:
         config.set("senha_hash", _ph.hash(SENHA_PADRAO))
 
 
-def bloqueado_ate() -> datetime | None:
-    """Bloqueio global: 3 falhas seguidas (sem sucesso entre elas) bloqueiam por 1 h."""
+def bloqueado_ate(ip: str = "") -> datetime | None:
+    """Bloqueio por endereço de acesso: 3 falhas seguidas daquele endereço bloqueiam ele por 1 h.
+    Assim, alguém tentando senhas pela internet não tranca os seus aparelhos."""
     ult = db.rows(
-        "SELECT quando, sucesso FROM login_tentativa ORDER BY id DESC LIMIT ?",
-        (MAX_TENTATIVAS,),
+        "SELECT quando, sucesso FROM login_tentativa WHERE ip = ? ORDER BY id DESC LIMIT ?",
+        (ip, MAX_TENTATIVAS),
     )
     if len(ult) < MAX_TENTATIVAS or any(t["sucesso"] for t in ult):
         return None
@@ -39,7 +40,7 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def login(senha: str) -> str | None:
+def login(senha: str, ip: str = "") -> str | None:
     """Retorna o token de sessão, ou None se a senha estiver errada."""
     ok = False
     try:
@@ -48,7 +49,7 @@ def login(senha: str) -> str | None:
         ok = False
     conn = db.get_conn()
     conn.execute(
-        "INSERT INTO login_tentativa(quando, sucesso) VALUES(?, ?)", (db.agora(), int(ok))
+        "INSERT INTO login_tentativa(quando, sucesso, ip) VALUES(?, ?, ?)", (db.agora(), int(ok), ip)
     )
     if not ok:
         return None

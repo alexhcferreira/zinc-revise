@@ -205,9 +205,9 @@ Se o usuário enviar uma nova questão real **errada** num tópico que já exist
 
 ## 6. Acesso e segurança
 
-- O app fica acessível **somente pela tailnet** do usuário, sem Funnel e sem exposição pública.
+- O app fica acessível **pela internet**, via Tailscale Funnel na porta 8443, para ser usado de qualquer computador.
 - **Senha de acesso**, com valor padrão `9993`, alterável nas configurações. A senha é guardada como hash, nunca em texto puro.
-- **3 tentativas erradas** bloqueiam o login por **1 hora**. O bloqueio é global, não por dispositivo: sem Funnel, só aparelhos da tailnet chegam à tela de login.
+- **3 tentativas erradas** bloqueiam o login por **1 hora**, contadas **por endereço de acesso**. Assim, alguém tentando senhas pela internet não bloqueia os aparelhos do usuário.
 - O login **não expira**. Cada dispositivo fica logado até o usuário clicar em "Sair" ou trocar a senha. Trocar a senha desloga todos os dispositivos.
 - A **API key**, quando configurada, fica **só no servidor** e nunca é enviada ao navegador. Na tela aparece mascarada (`sk-ant-…a1b2`).
 

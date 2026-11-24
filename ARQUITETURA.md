@@ -27,9 +27,9 @@
 |---|---|
 | Máquina | PC de casa, Windows 11 x64, sempre ligado |
 | Backend | `127.0.0.1:3001`, só local; nunca escutar em `0.0.0.0` |
-| Exposição | `tailscale serve --bg --https=8443 http://127.0.0.1:3001` |
+| Exposição | `tailscale funnel --bg --https=8443 http://127.0.0.1:3001` |
 | URL | `https://<nome-do-pc>.<tailnet>.ts.net:8443` |
-| Visibilidade | **Só tailnet.** Não habilitar Funnel nesta porta |
+| Visibilidade | **Internet** (Funnel). Decisão do usuário em 24/11/2026, para acessar de qualquer PC sem instalar o Tailscale |
 | Convivência | O Funnel atual (porta 443 → `127.0.0.1:3000`, dois sites de estudo) **não é alterado** |
 
 Por que porta separada em vez de mais um caminho no mesmo domínio:

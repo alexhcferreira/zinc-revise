@@ -70,6 +70,11 @@ def estatisticas(inicio: str | None, fim: str | None, fonte: str = "app", origem
                  materias: list[int] | None = None) -> dict:
     hoje = db.hoje()
     fim = fim or hoje.isoformat()
+    if inicio == "tudo":  # desde o primeiro registro
+        primeiro = db.row(
+            "SELECT MIN(d) AS d FROM (SELECT MIN(substr(respondida_em, 1, 10)) AS d FROM sessao_item "
+            "UNION ALL SELECT MIN(substr(criado_em, 1, 10)) FROM questao)")
+        inicio = (primeiro and primeiro["d"]) or fim
     inicio = inicio or (hoje - timedelta(days=30)).isoformat()
     resp = _respostas(inicio, fim, fonte, origem, materias or [])
 
@@ -92,8 +97,8 @@ def estatisticas(inicio: str | None, fim: str | None, fonte: str = "app", origem
     por_dia: dict[str, list] = {}
     for r in resp:
         por_dia.setdefault(r["dia"], []).append(r)
-    d = d0
-    while d <= d1 and len(dias) < 400:
+    d = max(d0, d1 - timedelta(days=399))  # gráfico mostra no máximo os últimos 400 dias
+    while d <= d1:
         dias.append({"dia": d.isoformat(), **_agg(por_dia.get(d.isoformat(), []))})
         d += timedelta(days=1)
 

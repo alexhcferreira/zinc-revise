@@ -68,9 +68,18 @@ def _json_body(request_body: bytes) -> dict:
 # Login
 # ---------------------------------------------------------------------------
 
+def ip_cliente(request: Request) -> str:
+    """Endereço de quem acessa. Atrás do tailscale serve/funnel o servidor só vê 127.0.0.1;
+    o endereço real vem no último item do X-Forwarded-For, que é o que o Tailscale acrescenta."""
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[-1].strip()
+    return request.client.host if request.client else ""
+
+
 @app.get("/api/auth")
 def estado_auth(request: Request):
-    ate = auth.bloqueado_ate()
+    ate = auth.bloqueado_ate(ip_cliente(request))
     return {"logado": auth.valido(request.cookies.get(auth.COOKIE)),
             "bloqueado_ate": ate.isoformat(timespec="minutes") if ate else None}
 
@@ -78,12 +87,13 @@ def estado_auth(request: Request):
 @app.post("/api/login")
 async def login(request: Request):
     body = _json_body(await request.body())
-    ate = auth.bloqueado_ate()
+    ip = ip_cliente(request)
+    ate = auth.bloqueado_ate(ip)
     if ate:
         return JSONResponse({"erro": f"Login bloqueado até {ate.strftime('%H:%M')}."}, status_code=429)
-    token = auth.login(str(body.get("senha", "")))
+    token = auth.login(str(body.get("senha", "")), ip)
     if not token:
-        ate = auth.bloqueado_ate()
+        ate = auth.bloqueado_ate(ip)
         msg = f"Senha errada. Login bloqueado até {ate.strftime('%H:%M')}." if ate else "Senha errada."
         return JSONResponse({"erro": msg}, status_code=401)
     resp = JSONResponse({"ok": True})

@@ -259,6 +259,9 @@ def test_api_login_bloqueio_e_rotas(app_env, monkeypatch):
             assert c.post("/api/login", json={"senha": "0000"}).status_code == 401
         r = c.post("/api/login", json={"senha": "9993"})
         assert r.status_code == 429  # bloqueado por 1 h mesmo com a senha certa
+        # o bloqueio é por endereço: outro aparelho continua conseguindo entrar
+        r = c.post("/api/login", json={"senha": "9993"}, headers={"X-Forwarded-For": "100.64.0.9"})
+        assert r.status_code == 200
 
 
 def test_assinatura_remove_api_key_do_ambiente(monkeypatch):

@@ -28,9 +28,9 @@ TecConcursos ──► cola questão (texto ou print) ──► cartão de confi
 
 | Tema | Decisão |
 |---|---|
-| Plataforma | App web, hospedado no PC de casa (Windows 11), acessado pelo Tailscale em casa e no serviço |
-| Exposição | Somente na tailnet (`tailscale serve`, porta 8443). **Sem Funnel** |
-| Acesso | Senha (padrão `9993`), bloqueio de 1 h após 3 tentativas erradas |
+| Plataforma | App web, hospedado no PC de casa (Windows 11), acessível de qualquer computador pela internet |
+| Exposição | Internet, via Tailscale Funnel na porta 8443 (`https://<pc>.<tailnet>.ts.net:8443`) |
+| Acesso | Senha (troque a padrão no primeiro acesso), bloqueio de 1 h após 3 tentativas erradas do mesmo endereço |
 | IA, modo padrão | Assinatura do Claude via `claude -p` (Claude Code) no PC de casa |
 | IA, modo alternativo | API key própria, ativada por um botão nas configurações |
 | Leitura de questões | Automática com Claude Haiku, para print e texto. Detecta pelas cores se a questão foi acertada, errada ou não respondida |
@@ -54,7 +54,7 @@ python -m venv .venv
 
 Abra `http://localhost:3001` (senha padrão `9993`). Os dados ficam em `data/` (banco SQLite, prints, PDFs).
 
-Para subir sozinho no logon e liberar o acesso pela tailnet (porta 8443, sem Funnel):
+Para subir sozinho no logon e publicar na internet (porta 8443, via Tailscale Funnel):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\instalar-tarefa.ps1

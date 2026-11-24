@@ -53,6 +53,7 @@
     bandeira: ["M4 22V4", "M4 4h13l-2 4 2 4H4"],
     mais: ["M12 5v14", "M5 12h14"],
     menos: ["M5 12h14"],
+    menu: ["M4 7h16", "M4 12h16", "M4 17h16"],
     voltar: ["M15 18l-6-6 6-6"],
     avancar: ["M9 18l6-6-6-6"],
     alerta: ["M12 9v4", "M12 17h.01", "M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"],
@@ -215,7 +216,7 @@
   /* =====================================================================
      estrutura e rotas
      ===================================================================== */
-  let main = null, nav = null, jobsInd = null;
+  let main = null, nav = null, jobsInd = null, navBaixo = null, jobsMini = null, folhaMais = null;
   let limpeza = [];
   let painelCache = null;
   let pollTimer = null;
@@ -230,13 +231,17 @@
     nav = h("nav", { class: "nav", "aria-label": "Seções" });
     jobsInd = h("div", { class: "jobs-ind oculto", "aria-live": "polite" });
     main = h("main", { id: "conteudo" });
+    navBaixo = h("nav", { class: "nav-baixo", "aria-label": "Seções" });
+    jobsMini = h("span", { class: "jobs-mini oculto" });
+    folhaMais = h("div", { class: "folha-mais oculto", onclick: (ev) => { if (ev.target === folhaMais) fecharMais(); } });
     raiz.appendChild(h("div", { class: "app" },
+      h("header", { class: "topo-movel" }, h("div", { class: "logo" }, h("span", { class: "selo" }, "Z"), "ZincRevise"), jobsMini),
       h("aside", { class: "lateral" },
         h("div", { class: "logo" }, h("span", { class: "selo" }, "Z"), "ZincRevise"),
         nav,
         h("div", { class: "lateral-pe" }, jobsInd,
           h("button", { class: "sair", onclick: sair }, icone("sair"), h("span", null, "Sair")))),
-      main));
+      main, navBaixo, folhaMais));
     window.removeEventListener("hashchange", rotear);
     window.addEventListener("hashchange", rotear);
     rotear();
@@ -245,6 +250,32 @@
   async function sair() {
     try { await api("/api/logout", { method: "POST" }); } catch (e) { /* ignora */ }
     telaLogin();
+  }
+
+  // nomes da barra inferior no celular
+
+  function fecharMais() { folhaMais.classList.add("oculto"); }
+  function abrirMais(atual) {
+    limpar(folhaMais);
+    folhaMais.appendChild(h("div", { class: "folha" },
+      [["estatisticas", "Estatísticas"], ["leis", "Biblioteca de leis"], ["config", "Configurações"]].map(([r, n]) =>
+        h("a", { href: "#/" + r, class: r === atual ? "ativo" : "", onclick: fecharMais }, icone(r), n)),
+      h("button", { onclick: () => { fecharMais(); sair(); } }, icone("sair"), "Sair")));
+    folhaMais.classList.remove("oculto");
+  }
+
+  function desenharNavBaixo(atual, contagens) {
+    if (!navBaixo) return;
+    limpar(navBaixo);
+    const itens = [["hoje", "Hoje"], ["cadastrar", "Cadastrar"], ["sessao", "Sessão"], ["topicos", "Assuntos"]];
+    for (const [r, nome] of itens) {
+      const c = contagens[r];
+      navBaixo.appendChild(h("a", { href: "#/" + r, class: r === atual ? "ativo" : "", "aria-current": r === atual ? "page" : null },
+        h("span", { class: "ic" }, icone(r), c && c.d ? h("span", { class: "ponto" }, String(c.v)) : null), h("span", null, nome)));
+    }
+    const noMais = ["estatisticas", "leis", "config"].includes(atual);
+    navBaixo.appendChild(h("button", { class: noMais ? "ativo" : "", onclick: () => abrirMais(atual) },
+      h("span", { class: "ic" }, icone("menu")), h("span", null, "Mais")));
   }
 
   function desenharNav(atual) {
@@ -262,6 +293,7 @@
         icone(r), h("span", { class: "nome" }, nome),
         c ? h("span", { class: "cont" + (c.d ? " destaque" : "") }, String(c.v)) : null));
     }
+    desenharNavBaixo(atual, contagens);
   }
 
   async function atualizarPainel() {
@@ -274,6 +306,7 @@
     if (!jobsInd) return;
     const ativos = (lista || []).filter((j) => j.status === "pendente" || j.status === "rodando");
     limpar(jobsInd);
+    if (jobsMini) { jobsMini.textContent = ativos.length ? "Gerando questões…" : ""; jobsMini.classList.toggle("oculto", !ativos.length); }
     if (!ativos.length) { jobsInd.classList.add("oculto"); pararPolling(); return; }
     jobsInd.classList.remove("oculto");
     adicionar(jobsInd, ["Gerando questões · " + plural(ativos.length, "assunto"), h("div", { class: "mudo", style: { fontWeight: 500, marginTop: "2px" } }, rotuloModelo("gerar")), h("div", { class: "barra" }, h("i"))]);
@@ -481,10 +514,13 @@
     function telaColar() {
       estado = null;
       limpar(area);
-      const zona = h("div", { class: "colar", tabindex: "0", "aria-label": "Área para colar a questão" },
+      const toque = window.matchMedia("(max-width: 860px), (pointer: coarse)").matches;
+      const zona = h("div", { class: "colar", tabindex: "0", role: toque ? "button" : null, "aria-label": toque ? "Escolher o print da questão" : "Área para colar a questão" },
         icone("colar"),
-        h("div", { class: "tit" }, "Cole a questão aqui"),
-        h("div", { class: "sub" }, "Pressione ", h("kbd", null, "Ctrl"), " + ", h("kbd", null, "V"), " com o print ou o texto copiado do Tec"));
+        toque ? h("div", { class: "tit" }, "Toque para escolher o print")
+          : h("div", { class: "tit" }, "Cole a questão aqui"),
+        toque ? h("div", { class: "sub" }, "Abre a galeria ou a câmera do celular")
+          : h("div", { class: "sub" }, "Pressione ", h("kbd", null, "Ctrl"), " + ", h("kbd", null, "V"), " com o print ou o texto copiado do Tec"));
       const arquivo = h("input", { type: "file", accept: "image/*", class: "oculto", onchange: () => { if (arquivo.files[0]) ler({ imagem: arquivo.files[0] }); } });
       const txt = autoAltura(h("textarea", { class: "inp", rows: "3", placeholder: "Ou cole o texto da questão aqui…" }));
       area.appendChild(zona);
@@ -493,8 +529,8 @@
         h("div", { class: "linha", style: { marginTop: "12px" } },
           h("button", { class: "btn prim", onclick: () => { if (txt.value.trim()) ler({ texto: txt.value }); } }, "Ler texto"),
           h("button", { class: "btn", onclick: () => arquivo.click() }, "Escolher imagem"), arquivo))));
-      zona.addEventListener("click", () => zona.focus());
-      zona.focus();
+      zona.addEventListener("click", () => { if (toque) arquivo.click(); else zona.focus(); });
+      if (!toque) zona.focus();
     }
 
     function aoColar(ev) {
@@ -759,7 +795,7 @@
         h("a", { href: "#/hoje", class: "btn sm" }, "Pausar")));
 
       const altsBox = h("div", { class: "alts", role: "radiogroup", "aria-label": "Alternativas" });
-      const acoes = h("div", { class: "q-acoes" });
+      const acoes = h("div", { class: "q-acoes q-acoes-fixas" });
       const fb = h("div");
       const invBox = h("div");
       const invalidar = h("button", { class: "ico-btn", title: "Essa questão está errada", "aria-label": "Essa questão está errada", onclick: () => {
@@ -995,16 +1031,16 @@
         const venc = t.proxima_revisao <= hoje;
         tbody.appendChild(h("tr", { class: "clic", onclick: () => { location.hash = "#/topico/" + t.id; } },
           h("td", { style: { paddingLeft: "36px" } }, h("a", { href: "#/topico/" + t.id, onclick: (ev) => ev.stopPropagation(), style: { fontWeight: 600 } }, t.nome)),
-          h("td", null, etapas(t.etapa, max_etapa)),
+          h("td", { class: "col-etapa" }, etapas(t.etapa, max_etapa)),
           h("td", null, venc ? h("span", { class: "etq azul" }, t.proxima_revisao === hoje ? "hoje" : "vencido " + relativo(t.proxima_revisao, hoje)) : h("span", { class: "t2" }, relativo(t.proxima_revisao, hoje))),
-          h("td", { class: "num t2", style: { whiteSpace: "nowrap" } }, t.reais + " reais · " + t.geradas + " geradas"),
+          h("td", { class: "num t2 col-banco", style: { whiteSpace: "nowrap" } }, t.reais + " reais · " + t.geradas + " geradas"),
           h("td", null, h("span", { class: "linha", style: { gap: "5px" } },
             t.novas ? h("span", { class: "etq azul" }, t.novas + " nova" + (t.novas > 1 ? "s" : "")) : null,
             t.banco_baixo ? h("span", { class: "etq aviso" }, "banco baixo") : null,
             t.sem_texto_base ? h("span", { class: "etq aviso", title: "Sem texto-base, conferir dispositivos" }, "sem texto-base") : null))));
       }
       corpo.appendChild(h("section", { class: "card tab-wrap" }, h("table", { class: "tab" },
-        h("thead", null, h("tr", null, h("th", { style: { paddingLeft: "36px" } }, "Assunto"), h("th", null, "Etapa"), h("th", null, "Próxima revisão"), h("th", null, "Banco"), h("th", null, ""))),
+        h("thead", null, h("tr", null, h("th", { style: { paddingLeft: "36px" } }, "Assunto"), h("th", { class: "col-etapa" }, "Etapa"), h("th", null, "Próxima revisão"), h("th", { class: "col-banco" }, "Banco"), h("th", { class: "col-tags" }, ""))),
         tbody)));
     }
     desenhar();
@@ -1121,6 +1157,117 @@
   }
 
   /* =====================================================================
+     SELETOR DE PERÍODO (atalhos + dois meses, como no Tec)
+     ===================================================================== */
+  const MESES_CAP = MESES.map((m) => m.charAt(0).toUpperCase() + m.slice(1));
+  function isoDe(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+  function somaMeses(s, n) { const d = dataISO(s); d.setMonth(d.getMonth() + n); return isoDe(d); }
+  function textoPeriodo(ini, fim) { return ini === "tudo" ? "Tudo" : fmtData(ini) + " - " + fmtData(fim); }
+
+  function atalhosPeriodo(hoje) {
+    const d = dataISO(hoje);
+    const inicioMes = isoDe(new Date(d.getFullYear(), d.getMonth(), 1));
+    const iniPassado = isoDe(new Date(d.getFullYear(), d.getMonth() - 1, 1));
+    const fimPassado = isoDe(new Date(d.getFullYear(), d.getMonth(), 0));
+    return [
+      ["Hoje", hoje, hoje], ["Ontem", somaDias(hoje, -1), somaDias(hoje, -1)],
+      ["Últimos 7 dias", somaDias(hoje, -6), hoje], ["Últimos 15 dias", somaDias(hoje, -14), hoje],
+      ["Este mês", inicioMes, hoje], ["Mês passado", iniPassado, fimPassado],
+      ["Últimos 6 meses", somaDias(somaMeses(hoje, -6), 1), hoje], ["Último ano", somaDias(somaMeses(hoje, -12), 1), hoje],
+      ["Tudo", "tudo", hoje],
+    ];
+  }
+
+  function seletorPeriodo(valor, hoje) {
+    // valor: { inicio, fim } (inicio pode ser "tudo"); devolve { el, valor() }
+    let ini = valor.inicio, fim = valor.fim;
+    let tIni = ini, tFim = fim;                       // seleção temporária, antes de "Selecionar"
+    let mesDir = dataISO(fim === "tudo" ? hoje : fim); // mês do calendário da direita
+    mesDir = new Date(mesDir.getFullYear(), mesDir.getMonth(), 1);
+    const rot = h("span");
+    const pop = h("div", { class: "periodo-pop oculto", role: "dialog", "aria-label": "Escolher período" });
+    const botao = h("button", { class: "inp periodo-btn", "aria-haspopup": "dialog", onclick: (ev) => { ev.stopPropagation(); if (pop.classList.contains("oculto")) abrir(); else fechar(); } }, rot);
+    const el = h("div", { class: "periodo" }, botao, pop);
+    function atualizarRotulo() { rot.textContent = textoPeriodo(ini, fim); }
+
+    function abrir() {
+      tIni = ini; tFim = fim;
+      const base = dataISO(fim === "tudo" ? hoje : fim);
+      mesDir = new Date(base.getFullYear(), base.getMonth(), 1);
+      desenhar();
+      pop.classList.remove("oculto");
+    }
+    function fechar() { pop.classList.add("oculto"); }
+
+    function mes(ano, m) {
+      const primeiro = new Date(ano, m, 1);
+      const desloc = (primeiro.getDay() + 6) % 7; // semana começa na segunda
+      const inicio = new Date(ano, m, 1 - desloc);
+      const dias = [];
+      for (let k = 0; k < 42; k++) dias.push(new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate() + k));
+      const ri = tIni === "tudo" ? null : tIni, rf = tFim;
+      return h("div", { class: "cal" },
+        h("table", null,
+          h("thead", null, h("tr", null, ["S", "T", "Q", "Q", "S", "S", "D"].map((x) => h("th", null, x)))),
+          h("tbody", null, [0, 1, 2, 3, 4, 5].map((w) => h("tr", null, dias.slice(w * 7, w * 7 + 7).map((dd) => {
+            const iso = isoDe(dd);
+            const futuro = iso > hoje;
+            const fora = dd.getMonth() !== m;
+            let cls = "";
+            if (fora) cls += " fora";
+            if (futuro) cls += " futuro";
+            if (ri && rf && iso >= ri && iso <= rf) cls += " faixa";
+            if (iso === ri || (iso === rf && ri)) cls += " ponta";
+            return h("td", null, h("button", { class: "dia" + cls, disabled: futuro, onclick: (ev) => { ev.stopPropagation(); clicar(iso); } }, String(dd.getDate())));
+          }))))));
+    }
+
+    function clicar(iso) {
+      if (!tIni || tIni === "tudo" || (tIni && tFim)) { tIni = iso; tFim = null; }
+      else if (iso < tIni) { tFim = tIni; tIni = iso; }
+      else tFim = iso;
+      desenhar();
+    }
+
+    function desenhar() {
+      limpar(pop);
+      const atalhos = atalhosPeriodo(hoje);
+      const ativo = atalhos.find(([, a, b]) => a === tIni && b === tFim);
+      const esq = new Date(mesDir.getFullYear(), mesDir.getMonth() - 1, 1);
+      const podeAvancar = isoDe(new Date(mesDir.getFullYear(), mesDir.getMonth() + 1, 1)) <= hoje;
+      adicionar(pop, [
+        h("div", { class: "periodo-corpo" },
+          h("ul", { class: "periodo-atalhos" },
+            atalhos.map(([n, a, b]) => h("li", null, h("button", { class: ativo && ativo[0] === n ? "ativo" : "", onclick: (ev) => { ev.stopPropagation(); tIni = a; tFim = b; if (a !== "tudo") { const x = dataISO(b); mesDir = new Date(x.getFullYear(), x.getMonth(), 1); } desenhar(); } }, n))),
+            h("li", null, h("button", { class: ativo ? "" : "ativo", onclick: (ev) => ev.stopPropagation() }, "Customizado"))),
+          h("div", { class: "periodo-cals" },
+            h("div", { class: "cal-mes" },
+              h("div", { class: "cal-cab" },
+                h("button", { class: "cal-nav", "aria-label": "Mês anterior", onclick: (ev) => { ev.stopPropagation(); mesDir = new Date(mesDir.getFullYear(), mesDir.getMonth() - 1, 1); desenhar(); } }, icone("voltar")),
+                h("span", null, MESES_CAP[esq.getMonth()] + " " + esq.getFullYear()), h("span", { class: "cal-nav-vazio" })),
+              mes(esq.getFullYear(), esq.getMonth())),
+            h("div", { class: "cal-mes" },
+              h("div", { class: "cal-cab" },
+                h("span", { class: "cal-nav-vazio so-desktop" }),
+                h("button", { class: "cal-nav so-mobile", "aria-label": "Mês anterior", onclick: (ev) => { ev.stopPropagation(); mesDir = new Date(mesDir.getFullYear(), mesDir.getMonth() - 1, 1); desenhar(); } }, icone("voltar")),
+                h("span", null, MESES_CAP[mesDir.getMonth()] + " " + mesDir.getFullYear()),
+                h("button", { class: "cal-nav", "aria-label": "Próximo mês", disabled: !podeAvancar, onclick: (ev) => { ev.stopPropagation(); mesDir = new Date(mesDir.getFullYear(), mesDir.getMonth() + 1, 1); desenhar(); } }, icone("avancar"))),
+              mes(mesDir.getFullYear(), mesDir.getMonth())))),
+        h("div", { class: "periodo-rodape" },
+          h("span", { class: "num" }, tIni && tFim ? textoPeriodo(tIni, tFim) : tIni ? fmtData(tIni) + " - …" : ""),
+          h("button", { class: "btn sm", onclick: (ev) => { ev.stopPropagation(); fechar(); } }, "Cancelar"),
+          h("button", { class: "btn sm prim", disabled: !(tIni && tFim), onclick: (ev) => { ev.stopPropagation(); ini = tIni; fim = tFim; atualizarRotulo(); fechar(); el.dispatchEvent(new Event("change")); } }, "Selecionar")),
+      ]);
+    }
+
+    pop.addEventListener("click", (ev) => ev.stopPropagation());
+    document.addEventListener("click", fechar);
+    limpeza.push(() => document.removeEventListener("click", fechar));
+    atualizarRotulo();
+    return { el, valor: () => ({ inicio: ini, fim }) };
+  }
+
+  /* =====================================================================
      ESTATÍSTICAS
      ===================================================================== */
   const filtroStats = { inicio: "", fim: "", fonte: "app", origem: "todas", materias: [], ordem: "indice", grafico: true, texto: true };
@@ -1129,19 +1276,15 @@
     const hoje = painelCache ? painelCache.hoje : hojeISO();
     if (!filtroStats.fim) { filtroStats.fim = hoje; filtroStats.inicio = somaDias(hoje, -29); }
     limpar(main);
-    main.appendChild(cabecalho("Estatísticas", "Seu desempenho nas revisões e nas questões registradas do Tec"));
+    main.appendChild(cabecalho("Estatísticas"));
 
-    const fIni = h("input", { class: "inp", type: "date", value: filtroStats.inicio });
-    const fFim = h("input", { class: "inp", type: "date", value: filtroStats.fim });
+    const periodo = seletorPeriodo({ inicio: filtroStats.inicio, fim: filtroStats.fim }, hoje);
+    periodo.el.addEventListener("change", () => filtrar());
     const fFonte = h("select", { class: "inp" }, [["app", "Revisões no app"], ["tec", "Registros do Tec"], ["ambos", "Ambos"]].map(([v, n]) => h("option", { value: v, selected: filtroStats.fonte === v }, n)));
     const fOrigem = h("select", { class: "inp" }, [["todas", "Todas"], ["real", "Reais"], ["gerada", "Inéditas"]].map(([v, n]) => h("option", { value: v, selected: filtroStats.origem === v }, n)));
     const multi = multiSelect(materias, filtroStats.materias);
-    const presets = h("div", { class: "seg" }, [[7, "7 dias"], [30, "30 dias"], [90, "90 dias"], [3650, "Tudo"]].map(([dd, n]) =>
-      h("button", { onclick: () => { fFim.value = hoje; fIni.value = somaDias(hoje, -(dd - 1)); filtrar(); } }, n)));
     main.appendChild(h("section", { class: "card filtros" },
-      h("label", { class: "campo" }, h("span", null, "De"), fIni),
-      h("label", { class: "campo" }, h("span", null, "Até"), fFim),
-      h("div", { class: "campo", style: { minWidth: 0 } }, h("span", null, "Atalhos"), presets),
+      h("div", { class: "campo", style: { minWidth: "230px" } }, h("span", null, "Período"), periodo.el),
       h("div", { class: "campo", style: { minWidth: "220px" } }, h("span", null, "Matérias"), multi.el),
       h("label", { class: "campo" }, h("span", null, "Fonte"), fFonte),
       h("label", { class: "campo" }, h("span", null, "Questões"), fOrigem),
@@ -1151,7 +1294,8 @@
     main.appendChild(corpo);
 
     async function filtrar() {
-      Object.assign(filtroStats, { inicio: fIni.value, fim: fFim.value, fonte: fFonte.value, origem: fOrigem.value, materias: multi.valor() });
+      const pv = periodo.valor();
+      Object.assign(filtroStats, { inicio: pv.inicio, fim: pv.fim, fonte: fFonte.value, origem: fOrigem.value, materias: multi.valor() });
       limpar(corpo);
       corpo.appendChild(h("div", { style: { marginTop: "20px" } }, carregando()));
       const q = new URLSearchParams({ inicio: filtroStats.inicio, fim: filtroStats.fim, fonte: filtroStats.fonte, origem: filtroStats.origem, materias: filtroStats.materias.join(",") });
@@ -1170,7 +1314,7 @@
           numero("Total de matérias", g.total_materias), numero("Erros", g.erros, "erro")),
         h("div", { class: "grafico" }, G.rosca(g.acertos, g.erros, 180),
           h("div", { class: "legenda" }, h("span", null, h("i", { style: { background: "var(--ok-marca)" } }), "Acertos"), h("span", null, h("i", { style: { background: "var(--erro-marca)" } }), "Erros"))),
-        h("div", { class: "grafico" }, G.radar(radarItens, 250))));
+        h("div", { class: "grafico" + (radarItens.length < 3 ? " radar-vazio" : "") }, G.radar(radarItens, 250))));
 
       corpo.appendChild(h("h2", { class: "secao-tit" }, "Desempenho por matéria e assunto"));
       const tabBox = h("div");
@@ -1213,11 +1357,11 @@
           const aberto = abertos.has(m.id);
           tb.appendChild(h("tr", null,
             h("td", { style: { width: "40px" } }, h("button", { class: "exp", "aria-expanded": String(aberto), "aria-label": (aberto ? "Recolher " : "Expandir ") + m.nome, onclick: () => { if (aberto) abertos.delete(m.id); else abertos.add(m.id); tabela(); } }, icone(aberto ? "menos" : "mais"))),
-            h("td", { style: { fontWeight: 600 } }, m.nome), h("td", { class: "dir num" }, String(m.resolvidas)), celDesemp(m)));
+            h("td", { style: { fontWeight: 600 } }, m.nome), h("td", { class: "dir num col-resol" }, String(m.resolvidas)), celDesemp(m)));
           if (aberto) ordenar(m.topicos).forEach((t) => tb.appendChild(h("tr", { class: "sub" },
-            h("td", { colspan: "2" }, t.nome), h("td", { class: "dir num" }, String(t.resolvidas)), celDesemp(t))));
+            h("td", { colspan: "2" }, t.nome), h("td", { class: "dir num col-resol" }, String(t.resolvidas)), celDesemp(t))));
         });
-        const ths = [h("th"), h("th", null, "Matéria / Assunto"), h("th", { class: "dir" }, "Questões resolvidas")];
+        const ths = [h("th"), h("th", null, "Matéria / Assunto"), h("th", { class: "dir col-resol" }, "Questões resolvidas")];
         if (filtroStats.grafico) ths.push(h("th", null, "Desempenho"));
         if (filtroStats.texto) ths.push(h("th", null, filtroStats.grafico ? "" : "Desempenho"));
         tabBox.appendChild(h("div", { class: "tab-wrap" }, h("table", { class: "tab tab-mat" }, h("thead", null, h("tr", null, ths)), tb)));
@@ -1225,11 +1369,11 @@
       tabela();
 
       corpo.appendChild(h("h2", { class: "secao-tit" }, "Evolução diária"));
-      const evo = h("div", { class: "card-corpo" });
+      const evo = h("div", { class: "card-corpo grafico-evo" });
       corpo.appendChild(h("section", { class: "card" }, evo));
       const desenharEvo = () => {
         limpar(evo);
-        evo.appendChild(G.colunasDia(d.dias, Math.max(300, evo.clientWidth - 36), 200));
+        evo.appendChild(G.colunasDia(d.dias, Math.max(300, Math.floor(evo.getBoundingClientRect().width) - 40), 200));
         evo.appendChild(h("div", { class: "legenda" }, h("span", null, h("i", { style: { background: "var(--ok-marca)" } }), "Acertos"), h("span", null, h("i", { style: { background: "var(--erro-marca)" } }), "Erros")));
       };
       desenharEvo();
