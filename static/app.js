@@ -206,7 +206,7 @@
           inp.value = ""; inp.focus();
         } finally { btn.disabled = false; }
       }
-    }, h("div", { class: "logo" }, h("span", { class: "selo" }, "Z"), "ZincRevise"),
+    }, h("div", { class: "logo" }, h("span", { class: "selo", "aria-hidden": "true" }), "ZincRevise"),
       h("div", { class: "sub" }, "Revisão espaçada para concursos"),
       h("label", { class: "campo" }, h("span", null, "Senha"), inp), btn, msg);
     raiz.appendChild(h("div", { class: "login" }, h("div", { class: "card" }, form)));
@@ -235,9 +235,9 @@
     jobsMini = h("span", { class: "jobs-mini oculto" });
     folhaMais = h("div", { class: "folha-mais oculto", onclick: (ev) => { if (ev.target === folhaMais) fecharMais(); } });
     raiz.appendChild(h("div", { class: "app" },
-      h("header", { class: "topo-movel" }, h("div", { class: "logo" }, h("span", { class: "selo" }, "Z"), "ZincRevise"), jobsMini),
+      h("header", { class: "topo-movel" }, h("div", { class: "logo" }, h("span", { class: "selo", "aria-hidden": "true" }), "ZincRevise"), jobsMini),
       h("aside", { class: "lateral" },
-        h("div", { class: "logo" }, h("span", { class: "selo" }, "Z"), "ZincRevise"),
+        h("div", { class: "logo" }, h("span", { class: "selo", "aria-hidden": "true" }), "ZincRevise"),
         nav,
         h("div", { class: "lateral-pe" }, jobsInd,
           h("button", { class: "sair", onclick: sair }, icone("sair"), h("span", null, "Sair")))),
@@ -1427,13 +1427,14 @@
     main.appendChild(cabecalho("Biblioteca de leis", "PDFs oficiais. A geração e a conferência de gabarito se baseiam neles."));
     const fNome = h("input", { class: "inp", placeholder: "Constituição Federal" });
     const fSigla = h("input", { class: "inp", placeholder: "CF/88" });
+    const fApelidos = h("input", { class: "inp", placeholder: "CF, Constituição Federal" });
     const fArq = h("input", { class: "inp", type: "file", accept: "application/pdf" });
     const status = h("div");
     const btn = h("button", { class: "btn prim", onclick: async () => {
       if (!fArq.files[0] || !fNome.value.trim() || !fSigla.value.trim()) { toast("Preencha nome, sigla e escolha o PDF.", true); return; }
       btn.disabled = true;
       limpar(status); status.appendChild(carregando("Lendo o PDF e separando artigos, parágrafos e incisos…"));
-      const fd = new FormData(); fd.append("arquivo", fArq.files[0]); fd.append("nome", fNome.value.trim()); fd.append("sigla", fSigla.value.trim());
+      const fd = new FormData(); fd.append("arquivo", fArq.files[0]); fd.append("nome", fNome.value.trim()); fd.append("sigla", fSigla.value.trim()); fd.append("apelidos", fApelidos.value.trim());
       try {
         const r = await api("/api/leis", { method: "POST", form: fd });
         toast("Lei importada: " + r.artigos + " artigos, " + r.dispositivos + " dispositivos.");
@@ -1441,7 +1442,8 @@
       } catch (e) { limpar(status); status.appendChild(alerta("erro", e.message)); btn.disabled = false; }
     } }, "Enviar lei");
     main.appendChild(card("Enviar PDF", "Enviar uma lei com a mesma sigla substitui a versão anterior.", null, h("div", { class: "card-corpo" },
-      h("div", { class: "grade g3", style: { gap: "14px" } }, h("label", { class: "campo" }, h("span", null, "Nome"), fNome), h("label", { class: "campo" }, h("span", null, "Sigla (como nas referências)"), fSigla), h("label", { class: "campo" }, h("span", null, "Arquivo PDF"), fArq)),
+      h("div", { class: "grade g3", style: { gap: "14px" } }, h("label", { class: "campo" }, h("span", null, "Nome"), fNome), h("label", { class: "campo" }, h("span", null, "Sigla (como nas referências)"), fSigla), h("label", { class: "campo" }, h("span", null, "Outros nomes (opcional, separados por vírgula)"), fApelidos)),
+      h("label", { class: "campo", style: { marginTop: "14px" } }, h("span", null, "Arquivo PDF"), fArq),
       h("div", { class: "linha", style: { marginTop: "14px" } }, btn), h("div", { style: { marginTop: "10px" } }, status))));
 
     main.appendChild(h("h2", { class: "secao-tit" }, "Leis na biblioteca"));
@@ -1449,7 +1451,7 @@
     main.appendChild(h("section", { class: "card tab-wrap" }, h("table", { class: "tab" },
       h("thead", null, h("tr", null, h("th", null, "Sigla"), h("th", null, "Nome"), h("th", { class: "dir" }, "Artigos"), h("th", { class: "dir" }, "Dispositivos"), h("th", { class: "dir" }, "Tópicos ligados"), h("th", null, "Versão"), h("th", null, "Enviada em"))),
       h("tbody", null, leis.map((l) => h("tr", { class: "clic", onclick: () => { location.hash = "#/lei/" + l.id; } },
-        h("td", { style: { fontWeight: 700 } }, h("a", { href: "#/lei/" + l.id }, l.sigla)), h("td", null, l.nome),
+        h("td", { style: { fontWeight: 700 } }, h("a", { href: "#/lei/" + l.id }, l.sigla)), h("td", null, l.nome, l.apelidos ? h("div", { class: "mudo", style: { fontSize: "13px" } }, l.apelidos) : null),
         h("td", { class: "dir num" }, String(l.artigos)), h("td", { class: "dir num" }, String(l.dispositivos)), h("td", { class: "dir num" }, String(l.topicos)),
         h("td", null, h("span", { class: "etq" }, "v" + l.versao)), h("td", { class: "num" }, fmtData(l.enviado_em))))))));
   }

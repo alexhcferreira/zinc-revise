@@ -207,6 +207,7 @@ MIGRACOES = {
     "materia": {"tema": "TEXT NOT NULL DEFAULT ''"},
     "sessao": {"teste": "INTEGER NOT NULL DEFAULT 0"},
     "login_tentativa": {"ip": "TEXT NOT NULL DEFAULT ''"},
+    "lei": {"apelidos": "TEXT NOT NULL DEFAULT ''"},
     "questao": {"assunto": "TEXT NOT NULL DEFAULT ''", "tec_codigo": "TEXT NOT NULL DEFAULT ''",
                 "tec_prova": "TEXT NOT NULL DEFAULT ''"},
 }

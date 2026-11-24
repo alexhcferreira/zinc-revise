@@ -466,7 +466,8 @@ def listar_leis():
 
 
 @app.post("/api/leis")
-async def enviar_lei(arquivo: UploadFile = File(...), nome: str = Form(...), sigla: str = Form(...)):
+async def enviar_lei(arquivo: UploadFile = File(...), nome: str = Form(...), sigla: str = Form(...),
+                     apelidos: str = Form("")):
     if not nome.strip() or not sigla.strip():
         raise ValueError("Informe nome e sigla da lei.")
     dados = await arquivo.read()
@@ -484,7 +485,7 @@ async def enviar_lei(arquivo: UploadFile = File(...), nome: str = Form(...), sig
     if not texto.strip():
         destino.unlink(missing_ok=True)
         raise ValueError("O PDF não tem texto selecionável (talvez seja escaneado).")
-    return await anyio.to_thread.run_sync(lambda: leis.importar_lei(nome.strip(), sigla.strip(), destino, texto))
+    return await anyio.to_thread.run_sync(lambda: leis.importar_lei(nome.strip(), sigla.strip(), destino, texto, apelidos.strip()))
 
 
 @app.get("/api/leis/{lid}")

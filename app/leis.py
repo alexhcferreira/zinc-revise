@@ -10,7 +10,7 @@ from . import db
 
 ROMANOS = re.compile(r"^(?=[IVXLC])M{0,3}(C[MD]|D?C{0,3})(X[CL]|L?X{0,3})(I[XV]|V?I{0,3})$")
 
-RE_ARTIGO = re.compile(r"^Art\.?\s*(\d{1,3}(?:\.\d{3})*)\s*(?:[º°ºo]|\.)?\s*(?:-\s*([A-Z])\b)?\s*[.\-–—]?\s*(.*)$")
+RE_ARTIGO = re.compile(r"^Art\.?\s*(\d{1,3}(?:\.\d{3})+|\d+)\s*(?:[º°ºo]|\.)?\s*(?:-\s*([A-Z])\b)?\s*[.\-–—]?\s*(.*)$")
 RE_PARAGRAFO = re.compile(r"^§\s*(\d+)\s*[º°o]?\s*(?:-\s*([A-Z])\b)?\s*[.\-–—]?\s*(.*)$")
 RE_PAR_UNICO = re.compile(r"^Par[áa]grafo\s+[úu]nico\s*[.\-–—:]?\s*(.*)$", re.IGNORECASE)
 RE_INCISO = re.compile(r"^([IVXLC]+)\s*(?:-\s*([A-Z])\b)?\s*[-–—]\s*(.*)$")
@@ -22,7 +22,9 @@ def _sem_acento(s: str) -> str:
 
 
 def norm_sigla(s: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", _sem_acento(s or "").lower())
+    t = _sem_acento(s or "").lower()
+    t = re.sub(r"\bn\s*[º°o]\.?\s*(?=\d)", "", t)  # "Lei nº 8.429/92" -> "Lei 8.429/92"
+    return re.sub(r"[^a-z0-9]", "", t)
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +88,7 @@ def dividir_dispositivos(texto: str) -> list[dict]:
     disps: list[dict] = []
     art = par = inc = None  # (chave, ref)
     atual: dict | None = None
+    bloco, ultimo_numero = 1, 0
 
     def novo(nivel: str, chave: str, ref: str, texto_ini: str):
         nonlocal atual
@@ -98,7 +101,16 @@ def dividir_dispositivos(texto: str) -> list[dict]:
             continue
         m = RE_ARTIGO.match(l)
         if m:
-            art = (_chave_artigo(m.group(1), m.group(2)), _ref_artigo(m.group(1), m.group(2)))
+            numero = int(m.group(1).replace(".", ""))
+            # numeração que recomeça (disposições transitórias, ADCT, anexos) vira um bloco separado,
+            # para o art. 1º das transitórias não se misturar com o art. 1º da lei
+            if numero < ultimo_numero - 5:
+                bloco += 1
+            ultimo_numero = numero
+            chave_art, ref_art = _chave_artigo(m.group(1), m.group(2)), _ref_artigo(m.group(1), m.group(2))
+            if bloco > 1:
+                chave_art, ref_art = f"{chave_art}@{bloco}", f"{ref_art} (bloco {bloco})"
+            art = (chave_art, ref_art)
             par = inc = None
             novo("artigo", art[0], art[1], l)
             continue
@@ -146,7 +158,7 @@ def parse_referencia(ref: str) -> tuple[str, str]:
     if not ref:
         return "", ""
     s = ref.replace(" ", " ")
-    m = re.search(r"\bart(?:igo)?\.?\s*(\d{1,3}(?:\.\d{3})*)\s*[º°o]?\s*(?:-\s*([A-Za-z])\b)?", s, re.IGNORECASE)
+    m = re.search(r"\bart(?:igo)?\.?\s*(\d{1,3}(?:\.\d{3})+|\d+)\s*[º°o]?\s*(?:-\s*([A-Za-z])\b)?", s, re.IGNORECASE)
     if not m:
         return norm_sigla(s), ""
     sigla = norm_sigla(s[: m.start()])
@@ -173,20 +185,36 @@ def parse_referencia(ref: str) -> tuple[str, str]:
     return sigla, "|".join(partes)
 
 
+def _nomes_da_lei(l: dict) -> list[str]:
+    """Sigla + apelidos normalizados (ex.: LIA, Lei 8.429/1992, Lei de Improbidade)."""
+    nomes = [l["sigla"]] + [a for a in (l.get("apelidos") or "").split(",")]
+    return [n for n in (norm_sigla(x) for x in nomes) if n]
+
+
 def achar_lei(sigla_ou_ref: str) -> dict | None:
+    """Acha a lei pela sigla citada na referência.
+    1) igualdade com a sigla ou um apelido; 2) o apelido mais longo contido no texto citado
+    ("lei84291992lia" contém "lei84291992"); 3) apelido que começa com o texto citado ("cf" -> "cf88")."""
     alvo = norm_sigla(sigla_ou_ref)
     if not alvo:
         return None
-    leis = db.rows("SELECT id, sigla, nome FROM lei")
+    leis = db.rows("SELECT id, sigla, nome, apelidos FROM lei")
     for l in leis:
-        if norm_sigla(l["sigla"]) == alvo:
+        if alvo in _nomes_da_lei(l):
             return l
-    # tolerância: "cf" casa com "cf88", "cpc" casa com "cpc2015"
+    melhor, tam = None, 0
     for l in leis:
-        s = norm_sigla(l["sigla"])
-        if s.startswith(alvo) or alvo.startswith(s):
-            return l
-    return None
+        for n in _nomes_da_lei(l):
+            if len(n) >= 3 and n in alvo and len(n) > tam:
+                melhor, tam = l, len(n)
+    if melhor:
+        return melhor
+    melhor, tam = None, 10 ** 6
+    for l in leis:
+        for n in _nomes_da_lei(l):
+            if len(alvo) >= 2 and n.startswith(alvo) and len(n) < tam:
+                melhor, tam = l, len(n)
+    return melhor
 
 
 def ligar_topico(topico_id: int) -> None:
@@ -255,11 +283,46 @@ def texto_base_topico(topico_id: int, limite: int = 20000) -> str:
         t = texto_base({"lei_id": lei["id"], "dispositivo_chave": chave})
         if t:
             partes.append(f"[{lei['sigla']}]\n{t}")
+    # faixa de artigos no nome do assunto do Tec: "Dos Atos de Improbidade (arts. 9º a 11 da Lei nº 8.429/1992)"
+    t = db.row("SELECT nome FROM topico WHERE id = ?", (topico_id,))
+    faixa = faixa_do_assunto(t["nome"]) if t else None
+    if faixa:
+        lei, ini, fim = faixa
+        artigos = db.rows(
+            "SELECT DISTINCT artigo FROM dispositivo WHERE lei_id = ? AND artigo NOT LIKE '%@%' ORDER BY ordem",
+            (lei["id"],))
+        for a in artigos:
+            n = int(re.match(r"\d+", a["artigo"]).group())
+            if ini <= n <= fim and (lei["id"], a["artigo"]) not in vistos:
+                vistos.add((lei["id"], a["artigo"]))
+                tx = texto_base({"lei_id": lei["id"], "dispositivo_chave": a["artigo"]}, limite=6000)
+                if tx:
+                    partes.append(f"[{lei['sigla']}]\n{tx.replace('>>> ', '')}")
+            if sum(len(x) for x in partes) > limite:
+                break
     texto = "\n\n".join(partes)
     return texto[:limite]
 
 
-def importar_lei(nome: str, sigla: str, pdf_path: Path, texto: str) -> dict:
+RE_FAIXA = re.compile(
+    r"arts?\.?\s*(\d+)[º°o]?(?:-[A-Z])?\s*(?:a|ao|até|-|–)\s*(\d+)[º°o]?(?:-[A-Z])?\s*(?:,\s*)?(?:d[aoe]s?\s+)?(.*)",
+    re.IGNORECASE)
+
+
+def faixa_do_assunto(nome: str) -> tuple[dict, int, int] | None:
+    """Extrai (lei, art. inicial, art. final) do nome do assunto, quando ele cita a faixa e a lei."""
+    m = RE_FAIXA.search(nome or "")
+    if not m:
+        return None
+    ini, fim = int(m.group(1)), int(m.group(2))
+    if fim < ini or fim - ini > 300:
+        return None
+    resto = re.sub(r"[)\]].*$", "", m.group(3) or "")
+    lei = achar_lei(resto) if resto.strip() else None
+    return (lei, ini, fim) if lei else None
+
+
+def importar_lei(nome: str, sigla: str, pdf_path: Path, texto: str, apelidos: str = "") -> dict:
     """Cria ou substitui a lei e religa os tópicos pela referência."""
     disps = dividir_dispositivos(texto)
     with db.tx() as conn:
@@ -271,13 +334,14 @@ def importar_lei(nome: str, sigla: str, pdf_path: Path, texto: str) -> dict:
             lei_id = existente["id"]
             conn.execute("DELETE FROM dispositivo WHERE lei_id = ?", (lei_id,))
             conn.execute(
-                "UPDATE lei SET nome = ?, sigla = ?, pdf_path = ?, versao = versao + 1, enviado_em = ? WHERE id = ?",
-                (nome, sigla, str(pdf_path), db.agora(), lei_id),
+                "UPDATE lei SET nome = ?, sigla = ?, apelidos = ?, pdf_path = ?, versao = versao + 1, enviado_em = ? "
+                "WHERE id = ?",
+                (nome, sigla, apelidos, str(pdf_path), db.agora(), lei_id),
             )
         else:
             cur = conn.execute(
-                "INSERT INTO lei(nome, sigla, pdf_path, enviado_em) VALUES(?, ?, ?, ?)",
-                (nome, sigla, str(pdf_path), db.agora()),
+                "INSERT INTO lei(nome, sigla, apelidos, pdf_path, enviado_em) VALUES(?, ?, ?, ?, ?)",
+                (nome, sigla, apelidos, str(pdf_path), db.agora()),
             )
             lei_id = cur.lastrowid
         conn.executemany(

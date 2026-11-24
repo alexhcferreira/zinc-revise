@@ -355,3 +355,14 @@ def test_quantidade_conta_reais_novas(app_env, monkeypatch):
     jobs.enfileirar_geracao(r["topico_id"], quantidade=1)
     jobs.ciclo()
     assert not chamadas                           # 1 real nova já completa a quantidade: só copia
+
+
+def test_numeros_de_artigo_e_blocos():
+    from app import leis
+
+    texto = ("Art. 1.234 Com ponto.\nArt. 1235 Sem ponto.\nArt. 1248-A Com letra.\n"
+             "Art. 1249 Fim.\nArt. 1º Transitória.\n")
+    d = [x["chave"] for x in leis.dividir_dispositivos(texto) if x["nivel"] == "artigo"]
+    assert d == ["1234", "1235", "1248-A", "1249", "1@2"]
+    assert leis.parse_referencia("NSCGJ, art. 1235") == ("nscgj", "1235")
+    assert leis.parse_referencia("CPC, art. 1.026") == ("cpc", "1026")

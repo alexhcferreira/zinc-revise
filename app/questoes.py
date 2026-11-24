@@ -43,7 +43,8 @@ def contexto_leitura() -> dict:
         "topicos": [f"{t['tema'] or '—'} › {t['materia']} › {t['nome']}" for t in db.rows(
             "SELECT m.tema, m.nome AS materia, t.nome FROM topico t JOIN materia m ON m.id = t.materia_id "
             "ORDER BY m.tema, m.nome, t.nome")],
-        "leis": [f"{l['sigla']} – {l['nome']}" for l in db.rows("SELECT sigla, nome FROM lei ORDER BY sigla")],
+        "leis": [f"{l['sigla']} – {l['nome']}" + (f" (também: {l['apelidos']})" if l["apelidos"] else "")
+                 for l in db.rows("SELECT sigla, nome, apelidos FROM lei ORDER BY sigla")],
     }
 
 

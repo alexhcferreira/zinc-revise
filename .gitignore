@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 data/
+
+# PDFs das leis (ficam só no PC; importados com scripts/importar_biblioteca.py)
+biblioteca de leis/
